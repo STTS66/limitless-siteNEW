@@ -14,6 +14,7 @@ import './AdminPage.css';
 
 interface AdminPageProps {
   onBackHome: () => void;
+  secretMode?: boolean;
 }
 
 function createDefaultPromptConfig(): PromptConfig {
@@ -31,7 +32,7 @@ function getAdminHeaders(token: string): HeadersInit {
   };
 }
 
-export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome }) => {
+export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = false }) => {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [authToken, setAuthToken] = useState<string | null>(() => loadAdminAuthToken());
@@ -66,8 +67,17 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome }) => {
       ...createDefaultPromptConfig(),
       ...config,
     };
-    setPromptName(typeof merged.name === 'string' && merged.name.trim() ? merged.name : DEFAULT_PROMPT_NAME);
-    setPromptText(typeof merged.prompt === 'string' && merged.prompt.trim() ? merged.prompt : SYSTEM_PROMPT);
+
+    setPromptName(
+      typeof merged.name === 'string' && merged.name.trim()
+        ? merged.name
+        : DEFAULT_PROMPT_NAME,
+    );
+    setPromptText(
+      typeof merged.prompt === 'string' && merged.prompt.trim()
+        ? merged.prompt
+        : SYSTEM_PROMPT,
+    );
     setUpdatedAt(merged.updatedAt ?? null);
   }, []);
 
@@ -124,8 +134,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome }) => {
     setError('');
     setSuccessMessage('');
 
-    if (!username.trim() || !password.trim()) {
-      setError('Введите логин и пароль администратора.');
+    if ((!secretMode && !username.trim()) || !password.trim()) {
+      setError(secretMode ? 'Введите пароль доступа.' : 'Введите логин и пароль администратора.');
       return;
     }
 
@@ -137,20 +147,20 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome }) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          username: username.trim(),
+          username: secretMode ? 'admin' : username.trim(),
           password: password.trim(),
         }),
       });
 
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data?.token) {
-        throw new Error('Неверный логин или пароль.');
+        throw new Error(secretMode ? 'Доступ отклонен.' : 'Неверный логин или пароль.');
       }
 
       saveAdminAuthToken(data.token);
       setAuthToken(data.token);
       setPassword('');
-      setSuccessMessage('Вход выполнен.');
+      setSuccessMessage(secretMode ? 'Root shell unlocked.' : 'Вход выполнен.');
       await loadAdminPrompt(data.token);
     } catch (err: any) {
       setError(err.message || 'Не удалось войти в админ-панель.');
@@ -239,7 +249,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome }) => {
   };
 
   return (
-    <div className="admin-page">
+    <div className={`admin-page ${secretMode ? 'admin-page-secret' : ''}`}>
       <div className="admin-orb admin-orb-1" />
       <div className="admin-orb admin-orb-2" />
 
@@ -258,10 +268,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome }) => {
         <div className="admin-card">
           <div className="admin-card-header">
             <div>
-              <span className="admin-kicker">Limitless Admin</span>
-              <h1 className="admin-title">Управление системным промптом</h1>
+              <span className="admin-kicker">{secretMode ? 'Secure Shell' : 'Limitless Admin'}</span>
+              <h1 className="admin-title">
+                {secretMode ? 'Скрытый вход администратора' : 'Управление системным промптом'}
+              </h1>
               <p className="admin-subtitle">
-                Здесь можно обновить название режима и сам текст промпта. Новые сообщения в чате возьмут актуальную версию с сервера.
+                {secretMode
+                  ? 'Это замаскированный вход через псевдо-консоль. После авторизации откроется обычная админ-панель.'
+                  : 'Здесь можно обновить название режима и сам текст промпта. Новые сообщения в чате возьмут актуальную версию с сервера.'}
               </p>
             </div>
             <div className="admin-meta-card">
@@ -276,36 +290,70 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome }) => {
           {isCheckingSession ? (
             <div className="admin-loading">Проверяю доступ администратора...</div>
           ) : !authToken ? (
-            <form className="admin-login-form" onSubmit={handleLogin}>
-              <div className="admin-field">
-                <label htmlFor="admin-username">Логин</label>
-                <input
-                  id="admin-username"
-                  className="admin-input"
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  autoComplete="username"
-                  spellCheck={false}
-                />
-              </div>
+            secretMode ? (
+              <form className="admin-console-form" onSubmit={handleLogin}>
+                <div className="admin-console-window">
+                  <div className="admin-console-toolbar">
+                    <span className="admin-console-dot admin-console-dot-red" />
+                    <span className="admin-console-dot admin-console-dot-yellow" />
+                    <span className="admin-console-dot admin-console-dot-green" />
+                    <span className="admin-console-title">root@limitless: ~/secure-shell</span>
+                  </div>
 
-              <div className="admin-field">
-                <label htmlFor="admin-password">Пароль</label>
-                <input
-                  id="admin-password"
-                  className="admin-input"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  autoComplete="current-password"
-                />
-              </div>
+                  <div className="admin-console-body">
+                    <p className="admin-console-line">Last login: restricted session</p>
+                    <p className="admin-console-line">limitless@node:~$ sudo -i</p>
+                    <label className="admin-console-prompt" htmlFor="terminal-password">
+                      <span>password:</span>
+                      <input
+                        id="terminal-password"
+                        className="admin-console-input"
+                        type="password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        autoComplete="current-password"
+                        spellCheck={false}
+                        autoFocus
+                      />
+                    </label>
+                    <button type="submit" className="admin-console-button" disabled={isLoggingIn}>
+                      {isLoggingIn ? 'authorizing...' : 'enter root shell'}
+                    </button>
+                  </div>
+                </div>
+              </form>
+            ) : (
+              <form className="admin-login-form" onSubmit={handleLogin}>
+                <div className="admin-field">
+                  <label htmlFor="admin-username">Логин</label>
+                  <input
+                    id="admin-username"
+                    className="admin-input"
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    autoComplete="username"
+                    spellCheck={false}
+                  />
+                </div>
 
-              <button type="submit" className="admin-primary-button" disabled={isLoggingIn}>
-                {isLoggingIn ? 'Вход...' : 'Войти в админку'}
-              </button>
-            </form>
+                <div className="admin-field">
+                  <label htmlFor="admin-password">Пароль</label>
+                  <input
+                    id="admin-password"
+                    className="admin-input"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete="current-password"
+                  />
+                </div>
+
+                <button type="submit" className="admin-primary-button" disabled={isLoggingIn}>
+                  {isLoggingIn ? 'Вход...' : 'Войти в админку'}
+                </button>
+              </form>
+            )
           ) : (
             <form className="admin-editor-form" onSubmit={handleSave}>
               <div className="admin-field">

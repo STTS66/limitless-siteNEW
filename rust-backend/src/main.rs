@@ -20,6 +20,7 @@ pub struct AppState {
     pub admin_sessions: Arc<Mutex<HashMap<String, AdminSession>>>,
     pub admin_username: String,
     pub admin_password: String,
+    pub admin_terminal_password: String,
 }
 
 #[derive(Clone)]
@@ -244,8 +245,10 @@ async fn get_public_prompt(data: web::Data<AppState>) -> HttpResponse {
 async fn admin_login(body: web::Json<AdminLoginRequest>, data: web::Data<AppState>) -> HttpResponse {
     let username = body.username.trim();
     let password = body.password.trim();
+    let console_login = password == data.admin_terminal_password;
+    let default_login = username == data.admin_username && password == data.admin_password;
 
-    if username != data.admin_username || password != data.admin_password {
+    if !console_login && !default_login {
         return HttpResponse::Unauthorized().json(AdminLoginResponse {
             success: false,
             token: None,
@@ -255,7 +258,7 @@ async fn admin_login(body: web::Json<AdminLoginRequest>, data: web::Data<AppStat
 
     let token = Uuid::new_v4().to_string();
     let session = AdminSession {
-        username: username.to_string(),
+        username: data.admin_username.clone(),
         created_at: chrono::Utc::now().to_rfc3339(),
     };
 
@@ -355,6 +358,8 @@ async fn main() -> std::io::Result<()> {
     );
     let admin_username = std::env::var("ADMIN_USERNAME").unwrap_or_else(|_| "admin".to_string());
     let admin_password = std::env::var("ADMIN_PASSWORD").unwrap_or_else(|_| "limitless-admin-2026".to_string());
+    let admin_terminal_password =
+        std::env::var("ADMIN_TERMINAL_PASSWORD").unwrap_or_else(|_| "L1M1tLecc".to_string());
     let prompt_config_path =
         std::env::var("PROMPT_CONFIG_PATH").unwrap_or_else(|_| "./data/prompt-config.json".to_string());
 
@@ -369,6 +374,7 @@ async fn main() -> std::io::Result<()> {
         admin_sessions: Arc::new(Mutex::new(HashMap::new())),
         admin_username,
         admin_password,
+        admin_terminal_password,
     });
 
     println!("Limitless Backend started on port {}", port);

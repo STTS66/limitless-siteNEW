@@ -23,13 +23,14 @@ function shouldKeepDeviceLocked(error?: string): boolean {
 
 const App: React.FC = () => {
   const [pathname, setPathname] = useState(() => window.location.pathname);
+  const isSecretConsoleRoute = pathname.startsWith('/sys/tty');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isChecking, setIsChecking] = useState(true);
   const [isBoundToToken, setIsBoundToToken] = useState(false);
   const [authError, setAuthError] = useState('');
   const [showAuthPage, setShowAuthPage] = useState(false);
   const [showLandingWhileAuthenticated, setShowLandingWhileAuthenticated] = useState(false);
-  const isAdminRoute = pathname.startsWith('/admin');
+  const isAdminRoute = pathname.startsWith('/admin') || isSecretConsoleRoute;
 
   useEffect(() => {
     const handlePopState = () => setPathname(window.location.pathname);
@@ -149,7 +150,7 @@ const App: React.FC = () => {
   };
 
   if (isAdminRoute) {
-    return <AdminPage onBackHome={() => navigate('/')} />;
+    return <AdminPage onBackHome={() => navigate('/')} secretMode={isSecretConsoleRoute} />;
   }
 
   if (isChecking) {
