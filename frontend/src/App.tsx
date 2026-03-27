@@ -200,8 +200,8 @@ const App: React.FC = () => {
       <LandingPage
         onOpenAuth={handleOpenFromLanding}
         onOpenAdmin={handleOpenAdminFromLanding}
-        navActionLabel="Р’ С‡Р°С‚"
-        primaryActionLabel="Р’РµСЂРЅСѓС‚СЊСЃСЏ РІ С‡Р°С‚"
+        navActionLabel="В чат"
+        primaryActionLabel="Вернуться в чат"
       />,
     );
   }
