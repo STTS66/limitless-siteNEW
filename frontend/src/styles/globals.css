@@ -77,9 +77,18 @@ body {
 }
 
 #root {
+  position: relative;
+  isolation: isolate;
   min-height: 100dvh;
   width: 100%;
   overflow: hidden;
+}
+
+.app-shell {
+  position: relative;
+  z-index: 1;
+  min-height: 100dvh;
+  width: 100%;
 }
 
 button,
@@ -212,6 +221,27 @@ select {
   50% { border-color: rgba(139, 92, 246, 0.5); }
 }
 
+@keyframes starDrift {
+  from {
+    transform: translate3d(0, 0, 0) scale(0.88);
+  }
+  to {
+    transform: translate3d(var(--star-drift-x), var(--star-drift-y), 0) scale(1.14);
+  }
+}
+
+@keyframes starTwinkle {
+  0%, 100% {
+    opacity: calc(var(--star-opacity) * 0.45);
+  }
+  35% {
+    opacity: var(--star-opacity);
+  }
+  70% {
+    opacity: calc(var(--star-opacity) * 0.72);
+  }
+}
+
 .animate-fade-in {
   animation: fadeIn var(--transition-base) ease-out;
 }
@@ -222,6 +252,40 @@ select {
 
 .animate-scale-in {
   animation: scaleIn var(--transition-spring) ease-out;
+}
+
+.global-starfield {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.global-star {
+  position: absolute;
+  left: var(--star-left);
+  top: var(--star-top);
+  width: calc(var(--star-size) * 1px);
+  height: calc(var(--star-size) * 1px);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.94);
+  opacity: var(--star-opacity);
+  box-shadow: 0 0 14px rgba(255, 255, 255, 0.26);
+  animation:
+    starDrift var(--star-duration) ease-in-out infinite alternate,
+    starTwinkle var(--star-twinkle) ease-in-out infinite;
+  animation-delay: var(--star-delay), var(--star-delay);
+  will-change: transform, opacity;
+}
+
+.global-star::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: inherit;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.34) 0%, rgba(255, 255, 255, 0) 72%);
+  filter: blur(1px);
 }
 
 /* Background gradient orbs */
@@ -267,6 +331,10 @@ select {
     --sidebar-width: 320px;
   }
 
+  .global-star:nth-child(n + 15) {
+    display: none;
+  }
+
   .bg-orb {
     filter: blur(90px);
     opacity: 0.12;
@@ -289,5 +357,13 @@ select {
   .bg-orb-3 {
     width: 220px;
     height: 220px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .global-star {
+    animation: none;
+    opacity: 0.42;
+    transform: none;
   }
 }

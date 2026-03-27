@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { GlobalStarfield } from './components/GlobalStarfield';
 import { AdminPage } from './pages/AdminPage';
 import { ChatPage } from './pages/ChatPage';
 import { AuthPage } from './pages/AuthPage';
@@ -153,12 +154,19 @@ const App: React.FC = () => {
     navigate('/admin');
   };
 
+  const renderScene = (content: React.ReactNode) => (
+    <>
+      <GlobalStarfield />
+      <div className="app-shell">{content}</div>
+    </>
+  );
+
   if (isAdminRoute) {
-    return <AdminPage onBackHome={() => navigate('/')} secretMode={isSecretConsoleRoute} />;
+    return renderScene(<AdminPage onBackHome={() => navigate('/')} secretMode={isSecretConsoleRoute} />);
   }
 
   if (isChecking) {
-    return (
+    return renderScene(
       <div
         style={{
           height: '100dvh',
@@ -179,38 +187,40 @@ const App: React.FC = () => {
             animation: 'spin 0.6s linear infinite',
           }}
         />
-      </div>
+      </div>,
     );
   }
 
   if (isAuthenticated && !showLandingWhileAuthenticated) {
-    return <ChatPage onGoHome={handleGoHome} />;
+    return renderScene(<ChatPage onGoHome={handleGoHome} />);
   }
 
   if (showLandingWhileAuthenticated) {
-    return (
+    return renderScene(
       <LandingPage
         onOpenAuth={handleOpenFromLanding}
         onOpenAdmin={handleOpenAdminFromLanding}
-        navActionLabel="В чат"
-        primaryActionLabel="Вернуться в чат"
-      />
+        navActionLabel="Р’ С‡Р°С‚"
+        primaryActionLabel="Р’РµСЂРЅСѓС‚СЊСЃСЏ РІ С‡Р°С‚"
+      />,
     );
   }
 
   if (isBoundToToken || showAuthPage) {
-    return (
+    return renderScene(
       <AuthPage
         onAuth={handleAuth}
         locked={isBoundToToken}
         lockedMessage={authError}
         onRetryLockedToken={isBoundToToken ? () => window.location.reload() : undefined}
         onBack={!isBoundToToken ? () => setShowAuthPage(false) : undefined}
-      />
+      />,
     );
   }
 
-  return <LandingPage onOpenAuth={handleOpenFromLanding} onOpenAdmin={handleOpenAdminFromLanding} />;
+  return renderScene(
+    <LandingPage onOpenAuth={handleOpenFromLanding} onOpenAdmin={handleOpenAdminFromLanding} />,
+  );
 };
 
 export default App;
