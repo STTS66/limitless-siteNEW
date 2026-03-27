@@ -34,6 +34,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     window.open(supportBotUrl, '_blank', 'noopener,noreferrer');
   };
 
+  const openSecretConsole = () => {
+    window.location.assign('/sys/tty');
+  };
+
   return (
     <div className="landing-page">
       <div className="bg-orb bg-orb-1" />
@@ -115,7 +119,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </div>
             </div>
 
-            <div className="landing-terminal-shell" aria-label="Limitless terminal preview">
+            <button
+              type="button"
+              className="landing-terminal-shell"
+              aria-label="Открыть скрытую консоль Limitless"
+              onClick={openSecretConsole}
+            >
               <div className="landing-terminal-window">
                 <div className="landing-terminal-toolbar">
                   <div className="landing-terminal-dots">
@@ -149,12 +158,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   </div>
 
                   <div className="landing-terminal-footer">
-                    <span className="landing-terminal-status">session ready</span>
+                    <span className="landing-terminal-status">session ready · tap to open shell</span>
                     <span className="landing-terminal-cursor" />
                   </div>
                 </div>
               </div>
-            </div>
+            </button>
           </div>
         </section>
 

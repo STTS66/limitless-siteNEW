@@ -305,8 +305,31 @@
 
 .landing-terminal-shell {
   width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
   opacity: 0;
   animation: fadeInUp 0.85s ease-out 0.26s both;
+}
+
+.landing-terminal-shell:hover .landing-terminal-window {
+  transform: translateY(-4px);
+  border-color: rgba(139, 92, 246, 0.28);
+  box-shadow:
+    0 28px 70px rgba(0, 0, 0, 0.36),
+    0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.landing-terminal-shell:focus-visible {
+  outline: none;
+}
+
+.landing-terminal-shell:focus-visible .landing-terminal-window {
+  box-shadow:
+    0 0 0 4px rgba(139, 92, 246, 0.14),
+    0 24px 60px rgba(0, 0, 0, 0.34);
 }
 
 .landing-terminal-window {
@@ -320,6 +343,10 @@
   box-shadow:
     0 24px 60px rgba(0, 0, 0, 0.34),
     0 0 0 1px rgba(255, 255, 255, 0.03);
+  transition:
+    transform var(--transition-base),
+    border-color var(--transition-base),
+    box-shadow var(--transition-base);
 }
 
 .landing-terminal-window::after {
