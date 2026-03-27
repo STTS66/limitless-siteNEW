@@ -149,6 +149,10 @@ const App: React.FC = () => {
     setShowAuthPage(true);
   };
 
+  const handleOpenAdminFromLanding = () => {
+    navigate('/admin');
+  };
+
   if (isAdminRoute) {
     return <AdminPage onBackHome={() => navigate('/')} secretMode={isSecretConsoleRoute} />;
   }
@@ -187,6 +191,7 @@ const App: React.FC = () => {
     return (
       <LandingPage
         onOpenAuth={handleOpenFromLanding}
+        onOpenAdmin={handleOpenAdminFromLanding}
         navActionLabel="В чат"
         primaryActionLabel="Вернуться в чат"
       />
@@ -205,7 +210,7 @@ const App: React.FC = () => {
     );
   }
 
-  return <LandingPage onOpenAuth={handleOpenFromLanding} />;
+  return <LandingPage onOpenAuth={handleOpenFromLanding} onOpenAdmin={handleOpenAdminFromLanding} />;
 };
 
 export default App;

@@ -5,12 +5,14 @@ import './LandingPage.css';
 
 interface LandingPageProps {
   onOpenAuth: () => void;
+  onOpenAdmin?: () => void;
   navActionLabel?: string;
   primaryActionLabel?: string;
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({
   onOpenAuth,
+  onOpenAdmin,
   navActionLabel = 'Войти',
   primaryActionLabel = 'Войти по токену',
 }) => {
@@ -75,6 +77,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       setTerminalPassword('');
       setTerminalMessage('session accepted.');
       setTerminalMessageType('success');
+      onOpenAdmin?.();
     } catch {
       setTerminalMessage('command rejected.');
       setTerminalMessageType('error');
