@@ -7,10 +7,12 @@ from pathlib import Path
 from typing import Optional
 
 import telebot
+from flask import Flask, jsonify
 
 BOT_TOKEN = os.getenv("SUPPORT_BOT_TOKEN", "8121934593:AAEMKjNDtNkGsetYyO_H5AsLd10Rl4eU7gU")
 OWNER_ID = int(os.getenv("SUPPORT_BOT_OWNER_ID", "1839845039"))
 RETRY_INTERVAL_SECONDS = max(5, int(os.getenv("SUPPORT_RETRY_INTERVAL_SECONDS", "15")))
+API_PORT = int(os.getenv("SUPPORT_API_PORT", os.getenv("PORT", "3002")))
 DB_FILE = Path(os.getenv("SUPPORT_DB_PATH", str(Path(__file__).with_name("support.db"))))
 
 if not BOT_TOKEN:
@@ -21,10 +23,20 @@ if OWNER_ID <= 0:
 
 bot = telebot.TeleBot(BOT_TOKEN)
 pending_delivery_lock = threading.Lock()
+app = Flask(__name__)
 
 
 def log(message: str) -> None:
     print(message, flush=True)
+
+
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"status": "ok", "service": "support-bot"})
+
+
+def run_flask() -> None:
+    app.run(host="0.0.0.0", port=API_PORT, debug=False, use_reloader=False)
 
 
 def now_iso() -> str:
@@ -598,9 +610,14 @@ def handle_unsupported(message):
 if __name__ == "__main__":
     init_db()
     threading.Thread(
+        target=run_flask,
+        name="support-http-api",
+        daemon=True,
+    ).start()
+    threading.Thread(
         target=retry_pending_support_messages_forever,
         name="support-retry-worker",
         daemon=True,
     ).start()
-    log(f"Support bot started (retry every {RETRY_INTERVAL_SECONDS}s)")
+    log(f"Support bot started (retry every {RETRY_INTERVAL_SECONDS}s, http port {API_PORT})")
     bot.infinity_polling(skip_pending=True)

@@ -5,6 +5,7 @@
 - `limitless-web`: static frontend with custom domain `limitless.pp.ua`
 - `limitless-api`: Rust API for token validation, admin login, and prompt storage
 - `limitless-telegram-api`: Telegram bot + payment/token API with a persistent disk for `auth.db`
+- `limitless-support-bot`: Telegram support bot with a persistent disk for `support.db`
 
 ## Before creating services
 
@@ -14,6 +15,8 @@
    - `ADMIN_PASSWORD`
    - `TELEGRAM_BOT_TOKEN`
    - `TELEGRAM_ADMIN_IDS`
+   - `SUPPORT_BOT_TOKEN`
+   - `SUPPORT_BOT_OWNER_ID`
 
 ## Custom domain
 
@@ -34,3 +37,4 @@ Render automatically provisions TLS after the domain verifies.
 - The frontend uses `VITE_API_BASE_URL=https://limitless-api.onrender.com`.
 - If you later attach a custom domain to the API, update `VITE_API_BASE_URL` in Render and redeploy `limitless-web`.
 - Prompt edits from the admin page are stored in `rust-backend/data/prompt-config.json` locally, and in Render they live on the `prompt-config-disk` persistent disk.
+- `limitless-telegram-api` and `limitless-support-bot` are standard Render web services with `/health`, so after deploy you can ping them with UptimeRobot if you want to reduce cold starts on the free plan.

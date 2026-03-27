@@ -61,3 +61,24 @@ services:
       name: telegram-auth-disk
       mountPath: /var/data
       sizeGB: 1
+
+  - type: web
+    name: limitless-support-bot
+    runtime: python
+    rootDir: telegram-support-bot
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    healthCheckPath: /health
+    envVars:
+      - key: SUPPORT_BOT_TOKEN
+        sync: false
+      - key: SUPPORT_BOT_OWNER_ID
+        sync: false
+      - key: SUPPORT_RETRY_INTERVAL_SECONDS
+        value: 15
+      - key: SUPPORT_DB_PATH
+        value: /var/data/support.db
+    disk:
+      name: support-bot-disk
+      mountPath: /var/data
+      sizeGB: 1
