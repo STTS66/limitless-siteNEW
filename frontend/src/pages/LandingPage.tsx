@@ -95,7 +95,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       <div className="landing-nav-shell">
         <nav className="landing-nav-capsule">
           <div className="landing-brand">
-            <img className="landing-brand-logo" src="/limitless-logo.svg" alt="Limitless" />
+            <img className="landing-brand-icon" src="/limitless-icon.svg" alt="Limitless icon" />
+            <span className="landing-brand-text">LIMITLESS</span>
           </div>
 
           <div className="landing-nav-links">

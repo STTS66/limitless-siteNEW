@@ -31,12 +31,14 @@
 .sidebar-brand {
   display: flex;
   align-items: center;
+  gap: 12px;
 }
 
-.sidebar-brand-logo {
+.sidebar-brand-icon {
   display: block;
-  width: 154px;
-  height: auto;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
   filter: drop-shadow(0 6px 18px rgba(109, 53, 236, 0.16));
 }
 
@@ -289,8 +291,9 @@
     letter-spacing: 2px;
   }
 
-  .sidebar-brand-logo {
-    width: 142px;
+  .sidebar-brand-icon {
+    width: 32px;
+    height: 32px;
   }
 
   .sidebar-close,
@@ -318,8 +321,9 @@
     padding: calc(16px + var(--safe-top)) 14px 12px;
   }
 
-  .sidebar-brand-logo {
-    width: 134px;
+  .sidebar-brand-icon {
+    width: 30px;
+    height: 30px;
   }
 
   .new-chat-button {

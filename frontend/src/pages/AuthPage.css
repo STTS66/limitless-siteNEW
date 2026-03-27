@@ -61,11 +61,26 @@
   margin: 20px 0 40px;
 }
 
-.auth-logo-wordmark {
-  display: block;
-  width: min(100%, 286px);
-  height: auto;
+.auth-brand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.auth-brand-icon {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
   filter: drop-shadow(0 12px 30px rgba(109, 53, 236, 0.18));
+}
+
+.auth-brand-text {
+  font-size: 38px;
+  font-weight: 900;
+  letter-spacing: 6px;
+  line-height: 1;
+  color: var(--text-accent);
 }
 
 .auth-subtitle {
@@ -293,8 +308,18 @@
     margin: 18px 0 32px;
   }
 
-  .auth-logo-wordmark {
-    width: min(100%, 242px);
+  .auth-brand {
+    gap: 12px;
+  }
+
+  .auth-brand-icon {
+    width: 38px;
+    height: 38px;
+  }
+
+  .auth-brand-text {
+    font-size: 32px;
+    letter-spacing: 4px;
   }
 
   .auth-subtitle {

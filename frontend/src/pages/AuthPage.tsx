@@ -99,7 +99,10 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         )}
 
         <div className="auth-logo">
-          <img className="auth-logo-wordmark" src="/limitless-logo.svg" alt="Limitless" />
+          <div className="auth-brand">
+            <img className="auth-brand-icon" src="/limitless-icon.svg" alt="Limitless icon" />
+            <span className="auth-brand-text">LIMITLESS</span>
+          </div>
           <p className="auth-subtitle">Custom Prompt Access</p>
         </div>
 

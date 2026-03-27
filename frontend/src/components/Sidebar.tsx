@@ -40,7 +40,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
       <div className="sidebar-header">
         <div className="sidebar-brand">
-          <img className="sidebar-brand-logo" src="/limitless-logo.svg" alt="Limitless" />
+          <img className="sidebar-brand-icon" src="/limitless-icon.svg" alt="Limitless icon" />
+          <span className="sidebar-brand-text">LIMITLESS</span>
         </div>
         <button className="sidebar-close" onClick={onClose}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">

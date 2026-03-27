@@ -56,17 +56,25 @@
 .landing-brand {
   display: flex;
   align-items: center;
+  gap: 12px;
   min-width: 0;
 }
 
-.landing-brand-logo {
+.landing-brand-icon {
   display: block;
-  width: 186px;
-  max-width: 100%;
-  height: auto;
+  width: 38px;
+  height: 38px;
   flex-shrink: 0;
   filter: drop-shadow(0 10px 24px rgba(109, 53, 236, 0.18));
   animation: landingBrandPulse 4.4s ease-in-out infinite;
+}
+
+.landing-brand-text {
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 4px;
+  color: var(--text-accent);
+  white-space: nowrap;
 }
 
 .landing-nav-links {
@@ -763,7 +771,7 @@
 @media (prefers-reduced-motion: reduce) {
   .landing-page::before,
   .landing-nav-capsule,
-  .landing-brand-logo,
+  .landing-brand-icon,
   .landing-hero-badge,
   .landing-title,
   .landing-description,
@@ -926,8 +934,14 @@
     gap: 8px;
   }
 
-  .landing-brand-logo {
-    width: 156px;
+  .landing-brand-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .landing-brand-text {
+    font-size: 12px;
+    letter-spacing: 3px;
   }
 
   .landing-nav-links {
