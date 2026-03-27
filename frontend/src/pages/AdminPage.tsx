@@ -17,11 +17,56 @@ interface AdminPageProps {
   secretMode?: boolean;
 }
 
+interface AdminUsersSummary {
+  totalUsers: number;
+  activeUsers: number;
+  bannedUsers: number;
+  boundDevices: number;
+}
+
+interface AdminUserRecord {
+  token: string;
+  chatId: number;
+  username: string;
+  createdAt?: string | null;
+  activatedDeviceId?: string | null;
+  activatedAt?: string | null;
+  subscriptionPlan?: string | null;
+  subscriptionStatus?: string | null;
+  subscriptionExpiresAt?: string | null;
+  revokedAt?: string | null;
+  lastSeenAt?: string | null;
+  isBanned: boolean;
+  isBound: boolean;
+}
+
+interface AdminUsersResponse {
+  success: boolean;
+  users?: AdminUserRecord[];
+  summary?: AdminUsersSummary;
+  error?: string;
+}
+
+interface AdminUserActionResponse {
+  success: boolean;
+  user?: AdminUserRecord;
+  error?: string;
+}
+
 function createDefaultPromptConfig(): PromptConfig {
   return {
     name: DEFAULT_PROMPT_NAME,
     prompt: SYSTEM_PROMPT,
     updatedAt: null,
+  };
+}
+
+function createEmptySummary(): AdminUsersSummary {
+  return {
+    totalUsers: 0,
+    activeUsers: 0,
+    bannedUsers: 0,
+    boundDevices: 0,
   };
 }
 
@@ -32,6 +77,53 @@ function getAdminHeaders(token: string): HeadersInit {
   };
 }
 
+function formatDateTime(value?: string | null): string {
+  if (!value) {
+    return '—';
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat('ru-RU', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
+}
+
+function getUserState(user: AdminUserRecord): { label: string; className: string } {
+  if (user.isBanned) {
+    return { label: 'Забанен', className: 'admin-user-badge-banned' };
+  }
+
+  if (user.subscriptionStatus === 'active') {
+    return { label: 'Активен', className: 'admin-user-badge-active' };
+  }
+
+  return { label: 'Неактивен', className: 'admin-user-badge-inactive' };
+}
+
+function getPlanLabel(user: AdminUserRecord): string {
+  switch (user.subscriptionPlan) {
+    case 'lifetime':
+      return 'Навсегда';
+    case 'subscription_90d':
+      return '90 дней';
+    case 'subscription_30d':
+      return '30 дней';
+    case 'manual_extend':
+      return 'Продлен вручную';
+    case 'inactive':
+    case undefined:
+    case null:
+      return 'Нет доступа';
+    default:
+      return user.subscriptionPlan;
+  }
+}
+
 export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = false }) => {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
@@ -39,10 +131,15 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
   const [promptName, setPromptName] = useState(DEFAULT_PROMPT_NAME);
   const [promptText, setPromptText] = useState(SYSTEM_PROMPT);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [users, setUsers] = useState<AdminUserRecord[]>([]);
+  const [summary, setSummary] = useState<AdminUsersSummary>(createEmptySummary());
+  const [userSearch, setUserSearch] = useState('');
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [isLoadingPrompt, setIsLoadingPrompt] = useState(false);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [userActionToken, setUserActionToken] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
@@ -58,15 +155,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
       return 'Еще не сохранялось';
     }
 
-    const date = new Date(updatedAt);
-    if (Number.isNaN(date.getTime())) {
-      return updatedAt;
-    }
-
-    return new Intl.DateTimeFormat('ru-RU', {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    }).format(date);
+    return formatDateTime(updatedAt);
   }, [updatedAt]);
 
   const applyPromptConfig = useCallback((config?: Partial<PromptConfig>) => {
@@ -92,6 +181,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
     clearAdminAuthToken();
     setAuthToken(null);
     setPassword('');
+    setUsers([]);
+    setSummary(createEmptySummary());
     setError('Сессия администратора закончилась. Войдите заново.');
     setSuccessMessage('');
     applyPromptConfig();
@@ -99,7 +190,6 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
 
   const loadAdminPrompt = useCallback(async (token: string) => {
     setIsLoadingPrompt(true);
-    setError('');
 
     try {
       const response = await fetch(getApiUrl('/api/admin/prompt'), {
@@ -108,22 +198,58 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
 
       if (response.status === 401) {
         handleUnauthorized();
-        return;
+        return false;
       }
 
       if (!response.ok) {
-        throw new Error('Не удалось загрузить текущий промпт.');
+        throw new Error('Не удалось загрузить текущие инструкции.');
       }
 
       const data = await response.json();
       applyPromptConfig(data);
+      return true;
     } catch (err: any) {
-      setError(err.message || 'Не удалось загрузить текущий промпт.');
+      setError(err.message || 'Не удалось загрузить текущие инструкции.');
+      return false;
     } finally {
       setIsLoadingPrompt(false);
-      setIsCheckingSession(false);
     }
   }, [applyPromptConfig, handleUnauthorized]);
+
+  const loadAdminUsers = useCallback(async (token: string, search = '') => {
+    setIsLoadingUsers(true);
+
+    try {
+      const params = new URLSearchParams();
+      params.set('limit', '250');
+      if (search.trim()) {
+        params.set('search', search.trim());
+      }
+
+      const response = await fetch(getApiUrl(`/api/admin/users?${params.toString()}`), {
+        headers: getAdminHeaders(token),
+      });
+
+      if (response.status === 401) {
+        handleUnauthorized();
+        return false;
+      }
+
+      const data: AdminUsersResponse = await response.json().catch(() => ({ success: false }));
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Не удалось загрузить пользователей.');
+      }
+
+      setUsers(data.users ?? []);
+      setSummary(data.summary ?? createEmptySummary());
+      return true;
+    } catch (err: any) {
+      setError(err.message || 'Не удалось загрузить пользователей.');
+      return false;
+    } finally {
+      setIsLoadingUsers(false);
+    }
+  }, [handleUnauthorized]);
 
   useEffect(() => {
     const token = loadAdminAuthToken();
@@ -133,8 +259,17 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
     }
 
     setAuthToken(token);
-    loadAdminPrompt(token);
-  }, [loadAdminPrompt]);
+
+    const bootstrap = async () => {
+      await Promise.all([
+        loadAdminPrompt(token),
+        loadAdminUsers(token, ''),
+      ]);
+      setIsCheckingSession(false);
+    };
+
+    bootstrap();
+  }, [loadAdminPrompt, loadAdminUsers]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -167,8 +302,11 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
       saveAdminAuthToken(data.token);
       setAuthToken(data.token);
       setPassword('');
-      setSuccessMessage(secretMode ? 'Root shell unlocked.' : 'Вход выполнен.');
-      await loadAdminPrompt(data.token);
+      setSuccessMessage(secretMode ? 'session accepted.' : 'Вход выполнен.');
+      await Promise.all([
+        loadAdminPrompt(data.token),
+        loadAdminUsers(data.token, ''),
+      ]);
     } catch (err: any) {
       setError(err.message || 'Не удалось войти в админ-панель.');
       setIsCheckingSession(false);
@@ -177,7 +315,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
     }
   };
 
-  const handleSave = async (e: React.FormEvent) => {
+  const handleSavePrompt = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!authToken) {
       setError('Сначала войдите в админ-панель.');
@@ -188,12 +326,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
     setSuccessMessage('');
 
     if (!promptName.trim()) {
-      setError('Введите название промпта.');
+      setError('Введите название набора инструкций.');
       return;
     }
 
     if (!promptText.trim()) {
-      setError('Введите текст промпта.');
+      setError('Введите текст инструкций.');
       return;
     }
 
@@ -215,13 +353,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
 
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data?.error || 'Не удалось сохранить промпт.');
+        throw new Error(data?.error || 'Не удалось сохранить инструкции.');
       }
 
       applyPromptConfig(data);
-      setSuccessMessage('Промпт обновлен.');
+      setSuccessMessage('Инструкции обновлены.');
     } catch (err: any) {
-      setError(err.message || 'Не удалось сохранить промпт.');
+      setError(err.message || 'Не удалось сохранить инструкции.');
     } finally {
       setIsSaving(false);
     }
@@ -230,7 +368,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
   const handleResetToDefault = () => {
     applyPromptConfig();
     setError('');
-    setSuccessMessage('В редактор подставлен базовый промпт. Сохраните его, если хотите применить.');
+    setSuccessMessage('В редактор подставлен базовый набор инструкций. Сохраните его, если хотите применить.');
   };
 
   const handleLogout = async () => {
@@ -238,6 +376,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
     clearAdminAuthToken();
     setAuthToken(null);
     setPassword('');
+    setUsers([]);
+    setSummary(createEmptySummary());
     setSuccessMessage('');
     applyPromptConfig();
 
@@ -252,6 +392,71 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
       });
     } catch {
       // Best effort logout.
+    }
+  };
+
+  const handleUsersSearchSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authToken) {
+      return;
+    }
+
+    setError('');
+    setSuccessMessage('');
+    await loadAdminUsers(authToken, userSearch);
+  };
+
+  const handleRefreshUsers = async () => {
+    if (!authToken) {
+      return;
+    }
+
+    setError('');
+    setSuccessMessage('');
+    await loadAdminUsers(authToken, userSearch);
+  };
+
+  const handleUserAction = async (user: AdminUserRecord, action: 'ban' | 'unban') => {
+    if (!authToken) {
+      return;
+    }
+
+    setUserActionToken(user.token);
+    setError('');
+    setSuccessMessage('');
+
+    try {
+      const response = await fetch(getApiUrl(`/api/admin/users/${action}`), {
+        method: 'POST',
+        headers: getAdminHeaders(authToken),
+        body: JSON.stringify({ token: user.token }),
+      });
+
+      if (response.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+
+      const data: AdminUserActionResponse = await response.json().catch(() => ({ success: false }));
+      if (!response.ok || !data.success || !data.user) {
+        throw new Error(data.error || 'Не удалось обновить пользователя.');
+      }
+
+      setUsers((prevUsers) => prevUsers.map((item) => (
+        item.token === data.user?.token ? data.user : item
+      )));
+      setSummary((prevSummary) => {
+        const delta = action === 'ban' ? 1 : -1;
+        return {
+          ...prevSummary,
+          bannedUsers: Math.max(0, prevSummary.bannedUsers + delta),
+        };
+      });
+      setSuccessMessage(action === 'ban' ? `Пользователь ${user.username} забанен.` : `Пользователь ${user.username} разбанен.`);
+    } catch (err: any) {
+      setError(err.message || 'Не удалось обновить пользователя.');
+    } finally {
+      setUserActionToken(null);
     }
   };
 
@@ -275,14 +480,16 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
         <div className="admin-card">
           <div className="admin-card-header">
             <div>
-              <span className="admin-kicker">{secretMode ? 'Secure Shell' : 'Limitless Admin'}</span>
+              <span className="admin-kicker">{authToken ? 'Admin Control' : secretMode ? 'Runtime Console' : 'Limitless Admin'}</span>
               <h1 className="admin-title">
-                {secretMode ? 'Скрытый вход администратора' : 'Управление системным промптом'}
+                {authToken ? 'Управление пользователями и инструкциями' : secretMode ? 'Interactive Session' : 'Управление системным промптом'}
               </h1>
               <p className="admin-subtitle">
-                {secretMode
-                  ? 'Это замаскированный вход через псевдо-консоль. После авторизации откроется обычная админ-панель.'
-                  : 'Здесь можно обновить название режима и сам текст промпта. Новые сообщения в чате возьмут актуальную версию с сервера.'}
+                {authToken
+                  ? 'После входа здесь можно смотреть пользователей, блокировать доступ, обновлять системный промпт и набор инструкций для новых ответов.'
+                  : secretMode
+                    ? 'Ephemeral shell access for maintenance routines.'
+                    : 'Здесь можно обновить название режима и сам текст промпта. Новые сообщения в чате возьмут актуальную версию с сервера.'}
               </p>
             </div>
             <div className="admin-meta-card">
@@ -304,7 +511,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
                     <span className="admin-console-dot admin-console-dot-red" />
                     <span className="admin-console-dot admin-console-dot-yellow" />
                     <span className="admin-console-dot admin-console-dot-green" />
-                    <span className="admin-console-title">root@limitless: ~/secure-shell</span>
+                    <span className="admin-console-title">limitless@node: ~/runtime</span>
                   </div>
 
                   <div className="admin-console-body">
@@ -364,55 +571,202 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
               </form>
             )
           ) : (
-            <form className="admin-editor-form" onSubmit={handleSave}>
-              <div className="admin-field">
-                <label htmlFor="prompt-name">Название промпта</label>
-                <input
-                  id="prompt-name"
-                  className="admin-input"
-                  type="text"
-                  value={promptName}
-                  onChange={(e) => setPromptName(e.target.value)}
-                  placeholder="Например: Limitless X"
-                  spellCheck={false}
-                />
-              </div>
+            <div className="admin-dashboard">
+              <section className="admin-section">
+                <div className="admin-section-header">
+                  <div>
+                    <h2 className="admin-section-title">Обзор доступа</h2>
+                    <p className="admin-section-subtitle">Сводка по всем токенам и привязанным устройствам.</p>
+                  </div>
+                </div>
 
-              <div className="admin-field admin-field-large">
-                <div className="admin-field-head">
-                  <label htmlFor="prompt-text">Текст промпта</label>
-                  <button
-                    type="button"
-                    className="admin-inline-button"
-                    onClick={handleResetToDefault}
-                  >
-                    Подставить базовый
+                <div className="admin-stats-grid">
+                  <article className="admin-stat-card">
+                    <span className="admin-stat-label">Всего пользователей</span>
+                    <strong className="admin-stat-value">{summary.totalUsers}</strong>
+                  </article>
+                  <article className="admin-stat-card">
+                    <span className="admin-stat-label">Активные</span>
+                    <strong className="admin-stat-value">{summary.activeUsers}</strong>
+                  </article>
+                  <article className="admin-stat-card">
+                    <span className="admin-stat-label">Забаненные</span>
+                    <strong className="admin-stat-value">{summary.bannedUsers}</strong>
+                  </article>
+                  <article className="admin-stat-card">
+                    <span className="admin-stat-label">Привязанные устройства</span>
+                    <strong className="admin-stat-value">{summary.boundDevices}</strong>
+                  </article>
+                </div>
+              </section>
+
+              <section className="admin-section">
+                <div className="admin-section-header">
+                  <div>
+                    <h2 className="admin-section-title">Пользователи</h2>
+                    <p className="admin-section-subtitle">Можно искать по имени, chat id или токену, банить и разбанивать доступ.</p>
+                  </div>
+                </div>
+
+                <div className="admin-users-toolbar">
+                  <form className="admin-search-form" onSubmit={handleUsersSearchSubmit}>
+                    <input
+                      className="admin-search-input"
+                      type="text"
+                      value={userSearch}
+                      onChange={(e) => setUserSearch(e.target.value)}
+                      placeholder="Поиск по имени, chat id или токену"
+                      spellCheck={false}
+                    />
+                    <button type="submit" className="admin-secondary-button" disabled={isLoadingUsers}>
+                      {isLoadingUsers ? 'Ищу...' : 'Найти'}
+                    </button>
+                  </form>
+
+                  <button type="button" className="admin-secondary-button" onClick={handleRefreshUsers} disabled={isLoadingUsers}>
+                    {isLoadingUsers ? 'Обновляю...' : 'Обновить список'}
                   </button>
                 </div>
-                <textarea
-                  id="prompt-text"
-                  className="admin-textarea"
-                  value={promptText}
-                  onChange={(e) => setPromptText(e.target.value)}
-                  placeholder="Введите новый системный промпт"
-                  spellCheck={false}
-                />
-              </div>
 
-              <div className="admin-actions">
-                <button
-                  type="button"
-                  className="admin-secondary-button"
-                  onClick={() => loadAdminPrompt(authToken)}
-                  disabled={isLoadingPrompt || isSaving}
-                >
-                  {isLoadingPrompt ? 'Обновляю...' : 'Загрузить с сервера'}
-                </button>
-                <button type="submit" className="admin-primary-button" disabled={isSaving || isLoadingPrompt}>
-                  {isSaving ? 'Сохраняю...' : 'Сохранить промпт'}
-                </button>
-              </div>
-            </form>
+                {users.length === 0 ? (
+                  <div className="admin-empty-state">
+                    {isLoadingUsers ? 'Загружаю пользователей...' : 'Пользователи не найдены.'}
+                  </div>
+                ) : (
+                  <div className="admin-user-list">
+                    {users.map((user) => {
+                      const userState = getUserState(user);
+                      const isActionRunning = userActionToken === user.token;
+
+                      return (
+                        <article key={user.token} className="admin-user-card">
+                          <div className="admin-user-head">
+                            <div className="admin-user-title-group">
+                              <h3 className="admin-user-name">{user.username || 'User'}</h3>
+                              <code className="admin-user-token">{user.token}</code>
+                            </div>
+
+                            <div className="admin-user-badges">
+                              <span className={`admin-user-badge ${userState.className}`}>{userState.label}</span>
+                              {user.isBound && <span className="admin-user-badge admin-user-badge-neutral">Устройство привязано</span>}
+                              <span className="admin-user-badge admin-user-badge-neutral">{getPlanLabel(user)}</span>
+                            </div>
+                          </div>
+
+                          <div className="admin-user-details">
+                            <div className="admin-user-detail">
+                              <span className="admin-user-detail-label">Chat ID</span>
+                              <span className="admin-user-detail-value">{user.chatId}</span>
+                            </div>
+                            <div className="admin-user-detail">
+                              <span className="admin-user-detail-label">Создан</span>
+                              <span className="admin-user-detail-value">{formatDateTime(user.createdAt)}</span>
+                            </div>
+                            <div className="admin-user-detail">
+                              <span className="admin-user-detail-label">Последняя активность</span>
+                              <span className="admin-user-detail-value">{formatDateTime(user.lastSeenAt)}</span>
+                            </div>
+                            <div className="admin-user-detail">
+                              <span className="admin-user-detail-label">Срок доступа</span>
+                              <span className="admin-user-detail-value">{formatDateTime(user.subscriptionExpiresAt)}</span>
+                            </div>
+                            <div className="admin-user-detail admin-user-detail-wide">
+                              <span className="admin-user-detail-label">Device ID</span>
+                              <span className="admin-user-detail-value admin-user-detail-mono">{user.activatedDeviceId || '—'}</span>
+                            </div>
+                            <div className="admin-user-detail">
+                              <span className="admin-user-detail-label">Бан</span>
+                              <span className="admin-user-detail-value">{formatDateTime(user.revokedAt)}</span>
+                            </div>
+                          </div>
+
+                          <div className="admin-user-actions">
+                            {user.isBanned ? (
+                              <button
+                                type="button"
+                                className="admin-secondary-button"
+                                onClick={() => handleUserAction(user, 'unban')}
+                                disabled={isActionRunning}
+                              >
+                                {isActionRunning ? 'Снимаю бан...' : 'Разбанить'}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="admin-danger-button"
+                                onClick={() => handleUserAction(user, 'ban')}
+                                disabled={isActionRunning}
+                              >
+                                {isActionRunning ? 'Баню...' : 'Забанить'}
+                              </button>
+                            )}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+
+              <section className="admin-section">
+                <div className="admin-section-header">
+                  <div>
+                    <h2 className="admin-section-title">Инструкции и системный промпт</h2>
+                    <p className="admin-section-subtitle">Изменения применяются к новым запросам после сохранения.</p>
+                  </div>
+                </div>
+
+                <form className="admin-editor-form" onSubmit={handleSavePrompt}>
+                  <div className="admin-field">
+                    <label htmlFor="prompt-name">Название набора инструкций</label>
+                    <input
+                      id="prompt-name"
+                      className="admin-input"
+                      type="text"
+                      value={promptName}
+                      onChange={(e) => setPromptName(e.target.value)}
+                      placeholder="Например: Limitless X"
+                      spellCheck={false}
+                    />
+                  </div>
+
+                  <div className="admin-field admin-field-large">
+                    <div className="admin-field-head">
+                      <label htmlFor="prompt-text">Текст инструкций</label>
+                      <button
+                        type="button"
+                        className="admin-inline-button"
+                        onClick={handleResetToDefault}
+                      >
+                        Подставить базовый
+                      </button>
+                    </div>
+                    <textarea
+                      id="prompt-text"
+                      className="admin-textarea"
+                      value={promptText}
+                      onChange={(e) => setPromptText(e.target.value)}
+                      placeholder="Введите новый системный промпт и инструкции"
+                      spellCheck={false}
+                    />
+                  </div>
+
+                  <div className="admin-actions">
+                    <button
+                      type="button"
+                      className="admin-secondary-button"
+                      onClick={() => authToken && loadAdminPrompt(authToken)}
+                      disabled={isLoadingPrompt || isSaving}
+                    >
+                      {isLoadingPrompt ? 'Обновляю...' : 'Загрузить с сервера'}
+                    </button>
+                    <button type="submit" className="admin-primary-button" disabled={isSaving || isLoadingPrompt}>
+                      {isSaving ? 'Сохраняю...' : 'Сохранить инструкции'}
+                    </button>
+                  </div>
+                </form>
+              </section>
+            </div>
           )}
         </div>
       </div>

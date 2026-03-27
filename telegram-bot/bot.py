@@ -47,6 +47,7 @@ LEGACY_JSON_FILE = resolve_writable_path(
     "telegram-bot",
 )
 PAY_SUPPORT_CONTACT = os.getenv("PAY_SUPPORT_CONTACT", "").strip()
+BOT_INTERNAL_API_KEY = os.getenv("BOT_INTERNAL_API_KEY", "limitless-bridge-key").strip()
 
 PLANS = [
     {
@@ -108,6 +109,15 @@ def parse_admin_chat_ids() -> set[int]:
 
 
 ADMIN_CHAT_IDS = parse_admin_chat_ids()
+
+
+def is_internal_api_request_authorized() -> bool:
+    received_key = request.headers.get("X-Limitless-Bridge-Key", "").strip()
+    return bool(received_key) and received_key == BOT_INTERNAL_API_KEY
+
+
+def unauthorized_internal_api_response():
+    return jsonify({"success": False, "error": "ADMIN_BRIDGE_UNAUTHORIZED"}), 401
 
 
 def now_iso() -> str:
@@ -786,6 +796,84 @@ def extend_token_subscription(token: str, days: int):
             )
             connection.commit()
             return get_token_by_value(connection, token)
+
+
+def format_admin_user_record(token_data: dict) -> dict:
+    return {
+        "token": token_data["token"],
+        "chatId": int(token_data["chat_id"]),
+        "username": token_data.get("username") or "User",
+        "createdAt": token_data.get("created_at"),
+        "activatedDeviceId": token_data.get("activated_device_id"),
+        "activatedAt": token_data.get("activated_at"),
+        "subscriptionPlan": token_data.get("subscription_plan"),
+        "subscriptionStatus": token_data.get("subscription_status"),
+        "subscriptionExpiresAt": token_data.get("subscription_expires_at"),
+        "revokedAt": token_data.get("revoked_at"),
+        "lastSeenAt": token_data.get("last_seen_at"),
+        "isBanned": bool(token_data.get("revoked_at")),
+        "isBound": bool(token_data.get("activated_device_id")),
+    }
+
+
+def list_admin_users(connection: sqlite3.Connection, search: str = "", limit: int = 200) -> list[dict]:
+    normalized_search = search.strip()
+    params: list[object] = []
+    query = "SELECT * FROM auth_tokens"
+
+    if normalized_search:
+        like_value = f"%{normalized_search}%"
+        query += " WHERE username LIKE ? OR token LIKE ? OR CAST(chat_id AS TEXT) LIKE ?"
+        params.extend([like_value, like_value, like_value])
+
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+
+    rows = connection.execute(query, params).fetchall()
+    return [format_admin_user_record(dict(row)) for row in rows]
+
+
+def get_admin_user_summary(connection: sqlite3.Connection) -> dict:
+    total_users = int(connection.execute("SELECT COUNT(*) FROM auth_tokens").fetchone()[0])
+    active_users = int(
+        connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM auth_tokens
+            WHERE revoked_at IS NULL
+              AND subscription_status = 'active'
+            """
+        ).fetchone()[0]
+    )
+    banned_users = int(
+        connection.execute(
+            "SELECT COUNT(*) FROM auth_tokens WHERE revoked_at IS NOT NULL"
+        ).fetchone()[0]
+    )
+    bound_devices = int(
+        connection.execute(
+            "SELECT COUNT(*) FROM auth_tokens WHERE activated_device_id IS NOT NULL"
+        ).fetchone()[0]
+    )
+    return {
+        "totalUsers": total_users,
+        "activeUsers": active_users,
+        "bannedUsers": banned_users,
+        "boundDevices": bound_devices,
+    }
+
+
+def set_admin_ban_state(connection: sqlite3.Connection, token: str, banned: bool):
+    token_data = get_token_by_value(connection, token)
+    if not token_data:
+        return None
+
+    connection.execute(
+        "UPDATE auth_tokens SET revoked_at = ? WHERE token = ?",
+        (now_iso() if banned else None, token),
+    )
+    connection.commit()
+    return get_token_by_value(connection, token)
 
 
 def record_star_payment(
@@ -1682,6 +1770,75 @@ def validate_token_post():
     token = str(data.get("token", "")).strip()
     device_id = str(data.get("deviceId", "")).strip()
     return jsonify(activate_token(token, device_id))
+
+
+@app.route("/api/admin/users", methods=["GET"])
+def admin_list_users_api():
+    if not is_internal_api_request_authorized():
+        return unauthorized_internal_api_response()
+
+    search = str(request.args.get("search", "")).strip()
+    limit = max(1, min(request.args.get("limit", default=200, type=int), 500))
+
+    with db_lock:
+        with get_connection() as connection:
+            users = list_admin_users(connection, search=search, limit=limit)
+            summary = get_admin_user_summary(connection)
+
+    return jsonify({
+        "success": True,
+        "users": users,
+        "summary": summary,
+        "error": None,
+    })
+
+
+@app.route("/api/admin/users/ban", methods=["POST"])
+def admin_ban_user_api():
+    if not is_internal_api_request_authorized():
+        return unauthorized_internal_api_response()
+
+    data = request.get_json(silent=True) or {}
+    token = str(data.get("token", "")).strip()
+    if not token:
+        return jsonify({"success": False, "user": None, "error": "TOKEN_REQUIRED"}), 400
+
+    with db_lock:
+        with get_connection() as connection:
+            updated_user = set_admin_ban_state(connection, token, True)
+
+    if not updated_user:
+        return jsonify({"success": False, "user": None, "error": "TOKEN_NOT_FOUND"}), 404
+
+    return jsonify({
+        "success": True,
+        "user": format_admin_user_record(updated_user),
+        "error": None,
+    })
+
+
+@app.route("/api/admin/users/unban", methods=["POST"])
+def admin_unban_user_api():
+    if not is_internal_api_request_authorized():
+        return unauthorized_internal_api_response()
+
+    data = request.get_json(silent=True) or {}
+    token = str(data.get("token", "")).strip()
+    if not token:
+        return jsonify({"success": False, "user": None, "error": "TOKEN_REQUIRED"}), 400
+
+    with db_lock:
+        with get_connection() as connection:
+            updated_user = set_admin_ban_state(connection, token, False)
+
+    if not updated_user:
+        return jsonify({"success": False, "user": None, "error": "TOKEN_NOT_FOUND"}), 404
+
+    return jsonify({
+        "success": True,
+        "user": format_admin_user_record(updated_user),
+        "error": None,
+    })
 
 
 @app.route("/health", methods=["GET"])

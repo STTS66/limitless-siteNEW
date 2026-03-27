@@ -15,6 +15,7 @@ const DEFAULT_PROMPT_NAME: &str = "Limitless 1.5";
 #[derive(Clone)]
 pub struct AppState {
     pub bot_api_url: String,
+    pub bot_internal_api_key: String,
     pub client: reqwest::Client,
     pub prompt_store: PromptStore,
     pub admin_sessions: Arc<Mutex<HashMap<String, AdminSession>>>,
@@ -78,6 +79,63 @@ pub struct AdminLoginResponse {
 pub struct AdminPromptUpdateRequest {
     pub name: String,
     pub prompt: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminUsersQuery {
+    pub search: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminUserActionRequest {
+    pub token: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminUserRecord {
+    pub token: String,
+    pub chat_id: i64,
+    pub username: String,
+    pub created_at: Option<String>,
+    pub activated_device_id: Option<String>,
+    pub activated_at: Option<String>,
+    pub subscription_plan: Option<String>,
+    pub subscription_status: Option<String>,
+    pub subscription_expires_at: Option<String>,
+    pub revoked_at: Option<String>,
+    pub last_seen_at: Option<String>,
+    pub is_banned: bool,
+    pub is_bound: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminUsersSummary {
+    pub total_users: i64,
+    pub active_users: i64,
+    pub banned_users: i64,
+    pub bound_devices: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminUsersResponse {
+    pub success: bool,
+    pub users: Vec<AdminUserRecord>,
+    pub summary: Option<AdminUsersSummary>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminUserActionResponse {
+    pub success: bool,
+    pub user: Option<AdminUserRecord>,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -180,6 +238,16 @@ fn ensure_admin(request: &HttpRequest, data: &web::Data<AppState>) -> Result<(),
             error: Some("ADMIN_AUTH_INVALID".to_string()),
         }))
     }
+}
+
+fn build_bot_admin_request(
+    data: &web::Data<AppState>,
+    method: reqwest::Method,
+    path: &str,
+) -> reqwest::RequestBuilder {
+    data.client
+        .request(method, format!("{}/{}", data.bot_api_url, path.trim_start_matches('/')))
+        .header("X-Limitless-Bridge-Key", data.bot_internal_api_key.clone())
 }
 
 async fn health_check() -> HttpResponse {
@@ -335,6 +403,119 @@ async fn admin_update_prompt(
     }
 }
 
+async fn admin_list_users(
+    request: HttpRequest,
+    query: web::Query<AdminUsersQuery>,
+    data: web::Data<AppState>,
+) -> HttpResponse {
+    if let Err(response) = ensure_admin(&request, &data) {
+        return response;
+    }
+
+    let limit = query.limit.unwrap_or(200).clamp(1, 500);
+    let search = query.search.clone().unwrap_or_default();
+
+    let response = build_bot_admin_request(&data, reqwest::Method::GET, "/api/admin/users")
+        .query(&[
+            ("limit", limit.to_string()),
+            ("search", search),
+        ])
+        .send()
+        .await;
+
+    match response {
+        Ok(resp) => {
+            let status = resp.status();
+            match resp.json::<AdminUsersResponse>().await {
+                Ok(payload) if status.is_success() => HttpResponse::Ok().json(payload),
+                Ok(payload) => HttpResponse::BadGateway().json(payload),
+                Err(_) => HttpResponse::BadGateway().json(AdminUsersResponse {
+                    success: false,
+                    users: vec![],
+                    summary: None,
+                    error: Some("ADMIN_USERS_PARSE_FAILED".to_string()),
+                }),
+            }
+        }
+        Err(_) => HttpResponse::BadGateway().json(AdminUsersResponse {
+            success: false,
+            users: vec![],
+            summary: None,
+            error: Some("ADMIN_USERS_UNAVAILABLE".to_string()),
+        }),
+    }
+}
+
+async fn admin_ban_user(
+    request: HttpRequest,
+    body: web::Json<AdminUserActionRequest>,
+    data: web::Data<AppState>,
+) -> HttpResponse {
+    if let Err(response) = ensure_admin(&request, &data) {
+        return response;
+    }
+
+    let response = build_bot_admin_request(&data, reqwest::Method::POST, "/api/admin/users/ban")
+        .json(&body.0)
+        .send()
+        .await;
+
+    match response {
+        Ok(resp) => {
+            let status = resp.status();
+            match resp.json::<AdminUserActionResponse>().await {
+                Ok(payload) if status.is_success() => HttpResponse::Ok().json(payload),
+                Ok(payload) => HttpResponse::BadGateway().json(payload),
+                Err(_) => HttpResponse::BadGateway().json(AdminUserActionResponse {
+                    success: false,
+                    user: None,
+                    error: Some("ADMIN_USER_ACTION_PARSE_FAILED".to_string()),
+                }),
+            }
+        }
+        Err(_) => HttpResponse::BadGateway().json(AdminUserActionResponse {
+            success: false,
+            user: None,
+            error: Some("ADMIN_USER_ACTION_UNAVAILABLE".to_string()),
+        }),
+    }
+}
+
+async fn admin_unban_user(
+    request: HttpRequest,
+    body: web::Json<AdminUserActionRequest>,
+    data: web::Data<AppState>,
+) -> HttpResponse {
+    if let Err(response) = ensure_admin(&request, &data) {
+        return response;
+    }
+
+    let response = build_bot_admin_request(&data, reqwest::Method::POST, "/api/admin/users/unban")
+        .json(&body.0)
+        .send()
+        .await;
+
+    match response {
+        Ok(resp) => {
+            let status = resp.status();
+            match resp.json::<AdminUserActionResponse>().await {
+                Ok(payload) if status.is_success() => HttpResponse::Ok().json(payload),
+                Ok(payload) => HttpResponse::BadGateway().json(payload),
+                Err(_) => HttpResponse::BadGateway().json(AdminUserActionResponse {
+                    success: false,
+                    user: None,
+                    error: Some("ADMIN_USER_ACTION_PARSE_FAILED".to_string()),
+                }),
+            }
+        }
+        Err(_) => HttpResponse::BadGateway().json(AdminUserActionResponse {
+            success: false,
+            user: None,
+            error: Some("ADMIN_USER_ACTION_UNAVAILABLE".to_string()),
+        }),
+    }
+}
+
 async fn admin_logout(request: HttpRequest, data: web::Data<AppState>) -> HttpResponse {
     if let Some(token) = extract_bearer_token(&request) {
         if let Ok(mut sessions) = data.admin_sessions.lock() {
@@ -356,6 +537,8 @@ async fn main() -> std::io::Result<()> {
     let bot_api_url = normalize_service_url(
         std::env::var("BOT_API_URL").unwrap_or_else(|_| "http://localhost:3001".to_string()),
     );
+    let bot_internal_api_key =
+        std::env::var("BOT_INTERNAL_API_KEY").unwrap_or_else(|_| "limitless-bridge-key".to_string());
     let admin_username = std::env::var("ADMIN_USERNAME").unwrap_or_else(|_| "admin".to_string());
     let admin_password = std::env::var("ADMIN_PASSWORD").unwrap_or_else(|_| "limitless-admin-2026".to_string());
     let admin_terminal_password =
@@ -365,6 +548,7 @@ async fn main() -> std::io::Result<()> {
 
     let state = web::Data::new(AppState {
         bot_api_url,
+        bot_internal_api_key,
         client: reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(5))
             .timeout(Duration::from_secs(12))
@@ -396,6 +580,9 @@ async fn main() -> std::io::Result<()> {
             .route("/api/admin/logout", web::post().to(admin_logout))
             .route("/api/admin/prompt", web::get().to(admin_get_prompt))
             .route("/api/admin/prompt", web::put().to(admin_update_prompt))
+            .route("/api/admin/users", web::get().to(admin_list_users))
+            .route("/api/admin/users/ban", web::post().to(admin_ban_user))
+            .route("/api/admin/users/unban", web::post().to(admin_unban_user))
     })
     .bind(("0.0.0.0", port))?
     .run()
