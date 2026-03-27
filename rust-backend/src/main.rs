@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use uuid::Uuid;
 
 mod auth;
@@ -359,7 +360,11 @@ async fn main() -> std::io::Result<()> {
 
     let state = web::Data::new(AppState {
         bot_api_url,
-        client: reqwest::Client::new(),
+        client: reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(12))
+            .build()
+            .expect("Failed to build HTTP client"),
         prompt_store: PromptStore::new(PathBuf::from(prompt_config_path)),
         admin_sessions: Arc::new(Mutex::new(HashMap::new())),
         admin_username,

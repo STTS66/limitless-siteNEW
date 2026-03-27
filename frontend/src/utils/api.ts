@@ -11,3 +11,17 @@ export function getApiUrl(path: string): string {
 
   return `${API_BASE_URL}${path}`;
 }
+
+export async function fetchApi(path: string, options: RequestInit = {}, timeoutMs = 15000): Promise<Response> {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(getApiUrl(path), {
+      ...options,
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
+}

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { resolveAuthError } from '../utils/authErrors';
-import { getApiUrl } from '../utils/api';
+import { fetchApi } from '../utils/api';
 import { loadOrCreateDeviceId } from '../utils/storage';
 import './AuthPage.css';
 
@@ -48,7 +48,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
 
     try {
       const deviceId = loadOrCreateDeviceId();
-      const response = await fetch(getApiUrl('/api/validate'), {
+      const response = await fetchApi('/api/validate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -67,7 +67,11 @@ export const AuthPage: React.FC<AuthPageProps> = ({
 
       onAuth(data.token || token.trim());
     } catch (err: any) {
-      if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+      if (
+        err?.name === 'AbortError' ||
+        err?.message?.includes('Failed to fetch') ||
+        err?.message?.includes('NetworkError')
+      ) {
         setError(resolveAuthError('VALIDATION_UNAVAILABLE'));
       } else {
         setError(err.message || resolveAuthError());

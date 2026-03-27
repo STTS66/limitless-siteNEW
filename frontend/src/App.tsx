@@ -4,7 +4,7 @@ import { ChatPage } from './pages/ChatPage';
 import { AuthPage } from './pages/AuthPage';
 import { LandingPage } from './pages/LandingPage';
 import { resolveAuthError } from './utils/authErrors';
-import { getApiUrl } from './utils/api';
+import { fetchApi } from './utils/api';
 import { clearAuthToken, loadAuthToken, loadOrCreateDeviceId, saveAuthToken } from './utils/storage';
 import './styles/globals.css';
 
@@ -58,7 +58,7 @@ const App: React.FC = () => {
 
     const validateStoredToken = async () => {
       try {
-        const response = await fetch(getApiUrl('/api/validate'), {
+        const response = await fetchApi('/api/validate', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
