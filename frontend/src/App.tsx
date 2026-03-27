@@ -1,58 +1,207 @@
-import React, { useState, useEffect } from 'react';
-import { AuthPage } from './pages/AuthPage';
+import React, { useEffect, useState } from 'react';
+import { AdminPage } from './pages/AdminPage';
 import { ChatPage } from './pages/ChatPage';
-import { loadAuthToken, saveAuthToken, clearAuthToken } from './utils/storage';
+import { AuthPage } from './pages/AuthPage';
+import { LandingPage } from './pages/LandingPage';
+import { resolveAuthError } from './utils/authErrors';
+import { getApiUrl } from './utils/api';
+import { clearAuthToken, loadAuthToken, loadOrCreateDeviceId, saveAuthToken } from './utils/storage';
 import './styles/globals.css';
 
+function shouldKeepDeviceLocked(error?: string): boolean {
+  switch (error) {
+    case 'DEVICE_ALREADY_BOUND':
+    case 'TOKEN_ALREADY_BOUND':
+    case 'SUBSCRIPTION_EXPIRED':
+    case 'SUBSCRIPTION_INACTIVE':
+    case 'TOKEN_REVOKED':
+      return true;
+    default:
+      return false;
+  }
+}
+
 const App: React.FC = () => {
+  const [pathname, setPathname] = useState(() => window.location.pathname);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isChecking, setIsChecking] = useState(true);
+  const [isBoundToToken, setIsBoundToToken] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [showAuthPage, setShowAuthPage] = useState(false);
+  const [showLandingWhileAuthenticated, setShowLandingWhileAuthenticated] = useState(false);
+  const isAdminRoute = pathname.startsWith('/admin');
 
   useEffect(() => {
-    const token = loadAuthToken();
-    if (token) {
-      setIsAuthenticated(true);
-    }
-    setIsChecking(false);
+    const handlePopState = () => setPathname(window.location.pathname);
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  useEffect(() => {
+    if (isAdminRoute) {
+      setIsChecking(false);
+      return;
+    }
+
+    const token = loadAuthToken();
+
+    if (!token) {
+      setIsBoundToToken(false);
+      setShowAuthPage(false);
+      setShowLandingWhileAuthenticated(false);
+      setIsChecking(false);
+      return;
+    }
+
+    const deviceId = loadOrCreateDeviceId();
+    let isCancelled = false;
+
+    const validateStoredToken = async () => {
+      try {
+        const response = await fetch(getApiUrl('/api/validate'), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ token, deviceId }),
+        });
+
+        if (!response.ok) {
+          throw new Error('Stored token validation failed');
+        }
+
+        const data = await response.json();
+
+        if (isCancelled) {
+          return;
+        }
+
+        if (data.valid) {
+          setAuthError('');
+          setIsBoundToToken(true);
+          setShowAuthPage(false);
+          setIsAuthenticated(true);
+        } else {
+          const shouldLock = shouldKeepDeviceLocked(data.error);
+
+          if (!shouldLock) {
+            clearAuthToken();
+          }
+
+          setAuthError(shouldLock ? resolveAuthError(data.error) : '');
+          setIsBoundToToken(shouldLock);
+          setShowAuthPage(shouldLock);
+          setShowLandingWhileAuthenticated(false);
+          setIsAuthenticated(false);
+        }
+      } catch {
+        if (!isCancelled) {
+          setAuthError('');
+          setIsBoundToToken(false);
+          setShowAuthPage(false);
+          setShowLandingWhileAuthenticated(false);
+          setIsAuthenticated(false);
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsChecking(false);
+        }
+      }
+    };
+
+    validateStoredToken();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [isAdminRoute]);
+
+  const navigate = (nextPath: string) => {
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({}, '', nextPath);
+    }
+    setPathname(nextPath);
+  };
 
   const handleAuth = (token: string) => {
     saveAuthToken(token);
+    setIsBoundToToken(true);
+    setAuthError('');
+    setShowAuthPage(false);
+    setShowLandingWhileAuthenticated(false);
     setIsAuthenticated(true);
   };
 
-  const handleLogout = () => {
-    clearAuthToken();
-    setIsAuthenticated(false);
+  const handleGoHome = () => {
+    setShowLandingWhileAuthenticated(true);
   };
+
+  const handleOpenFromLanding = () => {
+    if (isAuthenticated) {
+      setShowLandingWhileAuthenticated(false);
+      return;
+    }
+
+    setShowAuthPage(true);
+  };
+
+  if (isAdminRoute) {
+    return <AdminPage onBackHome={() => navigate('/')} />;
+  }
 
   if (isChecking) {
     return (
-      <div style={{
-        height: '100vh',
-        width: '100vw',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: '#0a0a0f',
-      }}>
-        <div style={{
-          width: 40,
-          height: 40,
-          border: '3px solid rgba(139, 92, 246, 0.2)',
-          borderTopColor: '#8b5cf6',
-          borderRadius: '50%',
-          animation: 'spin 0.6s linear infinite',
-        }} />
+      <div
+        style={{
+          height: '100dvh',
+          width: '100vw',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: '#0a0a0f',
+        }}
+      >
+        <div
+          style={{
+            width: 40,
+            height: 40,
+            border: '3px solid rgba(139, 92, 246, 0.2)',
+            borderTopColor: '#8b5cf6',
+            borderRadius: '50%',
+            animation: 'spin 0.6s linear infinite',
+          }}
+        />
       </div>
     );
   }
 
-  return isAuthenticated ? (
-    <ChatPage onLogout={handleLogout} />
-  ) : (
-    <AuthPage onAuth={handleAuth} />
-  );
+  if (isAuthenticated && !showLandingWhileAuthenticated) {
+    return <ChatPage onGoHome={handleGoHome} />;
+  }
+
+  if (showLandingWhileAuthenticated) {
+    return (
+      <LandingPage
+        onOpenAuth={handleOpenFromLanding}
+        navActionLabel="В чат"
+        primaryActionLabel="Вернуться в чат"
+      />
+    );
+  }
+
+  if (isBoundToToken || showAuthPage) {
+    return (
+      <AuthPage
+        onAuth={handleAuth}
+        locked={isBoundToToken}
+        lockedMessage={authError}
+        onRetryLockedToken={isBoundToToken ? () => window.location.reload() : undefined}
+        onBack={!isBoundToToken ? () => setShowAuthPage(false) : undefined}
+      />
+    );
+  }
+
+  return <LandingPage onOpenAuth={handleOpenFromLanding} />;
 };
 
 export default App;

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Chat, Message, UserSettings } from '../types';
+import { Chat, Message } from '../types';
 import { Sidebar } from '../components/Sidebar';
 import { SettingsModal } from '../components/SettingsModal';
 import { CapsuleNav } from '../components/CapsuleNav';
@@ -9,14 +9,19 @@ import {
   generateId, loadChats, saveChats, loadSettings,
   createNewChat, generateChatTitle, loadCurrentChatId, saveCurrentChatId
 } from '../utils/storage';
-import { streamMessageToGemini, sendMessageToGemini } from '../utils/gemini';
+import {
+  DEFAULT_PROMPT_NAME,
+  fetchPromptConfig,
+  streamMessageToGemini,
+  sendMessageToGemini,
+} from '../utils/gemini';
 import './ChatPage.css';
 
 interface ChatPageProps {
-  onLogout: () => void;
+  onGoHome: () => void;
 }
 
-export const ChatPage: React.FC<ChatPageProps> = ({ onLogout }) => {
+export const ChatPage: React.FC<ChatPageProps> = ({ onGoHome }) => {
   const [chats, setChats] = useState<Chat[]>(() => loadChats());
   const [currentChatId, setCurrentChatId] = useState<string | null>(() => loadCurrentChatId());
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -25,19 +30,22 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onLogout }) => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [streamingText, setStreamingText] = useState('');
   const [error, setError] = useState('');
-  
+  const [promptName, setPromptName] = useState(DEFAULT_PROMPT_NAME);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const currentChat = chats.find(c => c.id === currentChatId) || null;
+  const currentChat = chats.find((c) => c.id === currentChatId) || null;
 
   useEffect(() => {
     saveChats(chats);
   }, [chats]);
 
   useEffect(() => {
-    if (currentChatId) saveCurrentChatId(currentChatId);
+    if (currentChatId) {
+      saveCurrentChatId(currentChatId);
+    }
   }, [currentChatId]);
 
   const scrollToBottom = useCallback(() => {
@@ -50,9 +58,22 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onLogout }) => {
     scrollToBottom();
   }, [currentChat?.messages.length, streamingText, scrollToBottom]);
 
+  useEffect(() => {
+    let isMounted = true;
+    fetchPromptConfig().then((config) => {
+      if (isMounted) {
+        setPromptName(config.name);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const handleNewChat = useCallback(() => {
     const newChat = createNewChat();
-    setChats(prev => [newChat, ...prev]);
+    setChats((prev) => [newChat, ...prev]);
     setCurrentChatId(newChat.id);
     setSidebarOpen(false);
     setInputValue('');
@@ -67,19 +88,26 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onLogout }) => {
   }, []);
 
   const handleDeleteChat = useCallback((chatId: string) => {
-    setChats(prev => prev.filter(c => c.id !== chatId));
+    setChats((prev) => prev.filter((c) => c.id !== chatId));
     if (currentChatId === chatId) {
       setCurrentChatId(null);
     }
   }, [currentChatId]);
 
+  const handleGoHomeClick = useCallback(() => {
+    setSidebarOpen(false);
+    onGoHome();
+  }, [onGoHome]);
+
   const handleSendMessage = useCallback(async () => {
     const content = inputValue.trim();
-    if (!content || isGenerating) return;
+    if (!content || isGenerating) {
+      return;
+    }
 
     const settings = loadSettings();
     if (!settings.geminiApiKey) {
-      setError('API ключ не настроен. Откройте настройки (кнопка внизу бокового меню)');
+      setError('API ключ не настроен. Откройте настройки через кнопку внизу бокового меню.');
       return;
     }
 
@@ -87,12 +115,11 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onLogout }) => {
     let chatId = currentChatId;
     let chatToUse = currentChat;
 
-    // Create new chat if none selected
     if (!chatId || !chatToUse) {
       const newChat = createNewChat();
       chatToUse = newChat;
       chatId = newChat.id;
-      setChats(prev => [newChat, ...prev]);
+      setChats((prev) => [newChat, ...prev]);
       setCurrentChatId(chatId);
     }
 
@@ -103,7 +130,6 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onLogout }) => {
       timestamp: Date.now(),
     };
 
-    // Update chat with user message
     const updatedChat: Chat = {
       ...chatToUse!,
       messages: [...chatToUse!.messages, userMessage],
@@ -111,7 +137,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onLogout }) => {
       updatedAt: Date.now(),
     };
 
-    setChats(prev => prev.map(c => c.id === chatId ? updatedChat : c));
+    setChats((prev) => prev.map((c) => c.id === chatId ? updatedChat : c));
     setInputValue('');
     setIsGenerating(true);
     setStreamingText('');
@@ -131,7 +157,6 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onLogout }) => {
           abortController.signal
         );
       } catch {
-        // Fallback to non-streaming if streaming fails
         responseText = await sendMessageToGemini(
           allMessages,
           settings.geminiApiKey,
@@ -146,11 +171,11 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onLogout }) => {
         timestamp: Date.now(),
       };
 
-      setChats(prev => prev.map(c => {
+      setChats((prev) => prev.map((c) => {
         if (c.id === chatId) {
           return {
             ...c,
-            messages: [...c.messages.filter(m => m.id !== 'streaming'), assistantMessage],
+            messages: [...c.messages.filter((m) => m.id !== 'streaming'), assistantMessage],
             updatedAt: Date.now(),
           };
         }
@@ -158,7 +183,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onLogout }) => {
       }));
     } catch (err: any) {
       if (err.name !== 'AbortError') {
-        setError(err.message || 'Произошла ошибка при генерации ответа');
+        setError(err.message || 'Произошла ошибка при генерации ответа.');
       }
     } finally {
       setIsGenerating(false);
@@ -182,10 +207,9 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onLogout }) => {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInputValue(e.target.value);
-    // Auto-resize textarea
     const target = e.target;
     target.style.height = 'auto';
-    target.style.height = Math.min(target.scrollHeight, 200) + 'px';
+    target.style.height = `${Math.min(target.scrollHeight, 200)}px`;
   };
 
   return (
@@ -202,7 +226,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onLogout }) => {
         onSelectChat={handleSelectChat}
         onDeleteChat={handleDeleteChat}
         onOpenSettings={() => setSettingsOpen(true)}
-        onLogout={onLogout}
+        onGoHome={handleGoHomeClick}
       />
 
       {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
@@ -211,7 +235,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onLogout }) => {
         <CapsuleNav
           onMenuClick={() => setSidebarOpen(true)}
           onNewChat={handleNewChat}
-          chatTitle={currentChat?.title || 'Limitless'}
+          chatTitle={currentChat?.title || promptName}
         />
 
         <div className="messages-container">
@@ -230,7 +254,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onLogout }) => {
                   </defs>
                 </svg>
               </div>
-              <h2 className="empty-state-title">Limitless</h2>
+              <h2 className="empty-state-title">{promptName}</h2>
               <p className="empty-state-text">Начните диалог с нейросетью</p>
               <div className="empty-state-hints">
                 {['Что ты умеешь?', '.help', '.helpWL'].map((hint, i) => (
@@ -321,7 +345,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onLogout }) => {
               )}
             </div>
           </div>
-          <p className="input-hint">Limitless 1.5 · Enter — отправить, Shift+Enter — новая строка</p>
+          <p className="input-hint">{promptName} • Enter — отправить, Shift+Enter — новая строка</p>
         </div>
       </div>
 

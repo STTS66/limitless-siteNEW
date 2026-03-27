@@ -1,4 +1,8 @@
 :root {
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
   --bg-primary: #0a0a0f;
   --bg-secondary: #12121a;
   --bg-tertiary: #1a1a2e;
@@ -54,9 +58,11 @@
 }
 
 html {
+  height: 100%;
   font-size: 16px;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
@@ -65,14 +71,22 @@ body {
   color: var(--text-primary);
   line-height: 1.6;
   overflow: hidden;
-  height: 100vh;
-  width: 100vw;
+  min-height: 100dvh;
+  width: 100%;
+  overscroll-behavior: none;
 }
 
 #root {
-  height: 100vh;
-  width: 100vw;
+  min-height: 100dvh;
+  width: 100%;
   overflow: hidden;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
 }
 
 /* Scrollbar styles */
@@ -246,4 +260,34 @@ body {
   left: 50%;
   transform: translate(-50%, -50%);
   animation: float 12s ease-in-out infinite;
+}
+
+@media (max-width: 640px) {
+  :root {
+    --sidebar-width: 320px;
+  }
+
+  .bg-orb {
+    filter: blur(90px);
+    opacity: 0.12;
+  }
+
+  .bg-orb-1 {
+    width: 340px;
+    height: 340px;
+    top: -120px;
+    right: -120px;
+  }
+
+  .bg-orb-2 {
+    width: 260px;
+    height: 260px;
+    bottom: -80px;
+    left: -80px;
+  }
+
+  .bg-orb-3 {
+    width: 220px;
+    height: 220px;
+  }
 }

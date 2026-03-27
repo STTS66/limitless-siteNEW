@@ -1,4 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import {
+  DEFAULT_PROMPT_NAME,
+  fetchPromptConfig,
+  GEMINI_MODEL_DESCRIPTION,
+  GEMINI_MODEL_LABEL,
+} from '../utils/gemini';
 import { loadSettings, saveSettings } from '../utils/storage';
 import './SettingsModal.css';
 
@@ -8,12 +14,24 @@ interface SettingsModalProps {
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
   const [apiKey, setApiKey] = useState('');
+  const [promptName, setPromptName] = useState(DEFAULT_PROMPT_NAME);
   const [saved, setSaved] = useState(false);
   const [showKey, setShowKey] = useState(false);
 
   useEffect(() => {
     const settings = loadSettings();
     setApiKey(settings.geminiApiKey || '');
+
+    let isMounted = true;
+    fetchPromptConfig().then((config) => {
+      if (isMounted) {
+        setPromptName(config.name);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const handleSave = () => {
@@ -26,7 +44,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
   };
 
   const handleOverlayClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) onClose();
+    if (e.target === e.currentTarget) {
+      onClose();
+    }
   };
 
   return (
@@ -57,7 +77,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
               API ключ Gemini
             </label>
             <p className="settings-hint">
-              Получите ключ на <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>
+              Получите ключ на{' '}
+              <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">
+                Google AI Studio
+              </a>
             </p>
             <div className="settings-input-group">
               <input
@@ -99,8 +122,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
               Модель
             </label>
             <div className="model-info">
-              <span className="model-badge">gemini-2.0-flash</span>
-              <span className="model-desc">Быстрая модель с большим контекстом</span>
+              <span className="model-badge">{GEMINI_MODEL_LABEL}</span>
+              <span className="model-desc">{GEMINI_MODEL_DESCRIPTION}</span>
             </div>
           </div>
 
@@ -110,21 +133,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                 <polyline points="14 2 14 8 20 8" />
               </svg>
-              Системный промт
+              Системный промпт
             </label>
             <div className="system-prompt-info">
-              <span className="prompt-badge">Limitless 1.5</span>
-              <span className="prompt-desc">Встроенный промт активен</span>
+              <span className="prompt-badge">{promptName}</span>
+              <span className="prompt-desc">Кастомный prompt-режим активен</span>
             </div>
           </div>
         </div>
 
         <div className="settings-footer">
-          <button className="settings-cancel" onClick={onClose}>Отмена</button>
-          <button
-            className={`settings-save ${saved ? 'saved' : ''}`}
-            onClick={handleSave}
-          >
+          <button className="settings-cancel" onClick={onClose}>
+            Отмена
+          </button>
+          <button className={`settings-save ${saved ? 'saved' : ''}`} onClick={handleSave}>
             {saved ? (
               <>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
@@ -132,7 +154,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose }) => {
                 </svg>
                 Сохранено
               </>
-            ) : 'Сохранить'}
+            ) : (
+              'Сохранить'
+            )}
           </button>
         </div>
       </div>

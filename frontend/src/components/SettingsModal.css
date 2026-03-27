@@ -7,18 +7,26 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding:
+    calc(24px + var(--safe-top))
+    calc(24px + var(--safe-right))
+    calc(24px + var(--safe-bottom))
+    calc(24px + var(--safe-left));
   animation: fadeIn 0.2s ease-out;
+  overflow-y: auto;
 }
 
 .settings-modal {
   width: 100%;
   max-width: 480px;
+  max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 48px);
   background: var(--bg-secondary);
   border: 1px solid var(--border-primary);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-lg), var(--shadow-glow);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .settings-header {
@@ -62,6 +70,8 @@
   display: flex;
   flex-direction: column;
   gap: 24px;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .settings-section {
@@ -143,6 +153,7 @@
 .system-prompt-info {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 12px 14px;
   background: var(--bg-input);
@@ -151,6 +162,9 @@
 }
 
 .model-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
   padding: 4px 10px;
   background: rgba(139, 92, 246, 0.15);
   border: 1px solid rgba(139, 92, 246, 0.3);
@@ -159,6 +173,9 @@
   font-size: 12px;
   font-weight: 600;
   color: var(--accent-secondary);
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
 }
 
 .prompt-badge {
@@ -227,4 +244,59 @@
 
 .settings-save.saved {
   background: var(--success);
+}
+
+@media (max-width: 640px) {
+  .settings-overlay {
+    align-items: flex-end;
+    padding:
+      calc(12px + var(--safe-top))
+      calc(12px + var(--safe-right))
+      calc(12px + var(--safe-bottom))
+      calc(12px + var(--safe-left));
+  }
+
+  .settings-modal {
+    max-width: none;
+    max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 24px);
+    border-radius: 20px;
+  }
+
+  .settings-header {
+    padding: 20px 18px 14px;
+  }
+
+  .settings-title {
+    gap: 8px;
+    font-size: 16px;
+  }
+
+  .settings-body {
+    padding: 18px;
+    gap: 20px;
+  }
+
+  .settings-input {
+    padding: 14px;
+    font-size: 16px;
+  }
+
+  .model-info,
+  .system-prompt-info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .settings-footer {
+    flex-direction: column-reverse;
+    padding: 14px 18px 18px;
+  }
+
+  .settings-cancel,
+  .settings-save {
+    width: 100%;
+    min-height: 46px;
+    justify-content: center;
+  }
 }

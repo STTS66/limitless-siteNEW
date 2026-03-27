@@ -3,7 +3,9 @@ import { Chat, Message, UserSettings } from '../types';
 const CHATS_KEY = 'limitless_chats';
 const SETTINGS_KEY = 'limitless_settings';
 const AUTH_KEY = 'limitless_auth_token';
+const ADMIN_AUTH_KEY = 'limitless_admin_auth_token';
 const CURRENT_CHAT_KEY = 'limitless_current_chat';
+const DEVICE_KEY = 'limitless_device_id';
 
 export function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
@@ -35,8 +37,31 @@ export function loadAuthToken(): string | null {
   return localStorage.getItem(AUTH_KEY);
 }
 
+export function loadOrCreateDeviceId(): string {
+  const existingId = localStorage.getItem(DEVICE_KEY);
+  if (existingId) {
+    return existingId;
+  }
+
+  const deviceId = globalThis.crypto?.randomUUID?.() ?? `device-${generateId()}${generateId()}`;
+  localStorage.setItem(DEVICE_KEY, deviceId);
+  return deviceId;
+}
+
 export function clearAuthToken(): void {
   localStorage.removeItem(AUTH_KEY);
+}
+
+export function saveAdminAuthToken(token: string): void {
+  localStorage.setItem(ADMIN_AUTH_KEY, token);
+}
+
+export function loadAdminAuthToken(): string | null {
+  return localStorage.getItem(ADMIN_AUTH_KEY);
+}
+
+export function clearAdminAuthToken(): void {
+  localStorage.removeItem(ADMIN_AUTH_KEY);
 }
 
 export function saveCurrentChatId(id: string): void {

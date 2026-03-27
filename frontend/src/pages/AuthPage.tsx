@@ -1,11 +1,24 @@
 import React, { useState } from 'react';
+import { resolveAuthError } from '../utils/authErrors';
+import { getApiUrl } from '../utils/api';
+import { loadOrCreateDeviceId } from '../utils/storage';
 import './AuthPage.css';
 
 interface AuthPageProps {
   onAuth: (token: string) => void;
+  locked?: boolean;
+  lockedMessage?: string;
+  onRetryLockedToken?: () => void;
+  onBack?: () => void;
 }
 
-export const AuthPage: React.FC<AuthPageProps> = ({ onAuth }) => {
+export const AuthPage: React.FC<AuthPageProps> = ({
+  onAuth,
+  locked = false,
+  lockedMessage,
+  onRetryLockedToken,
+  onBack,
+}) => {
   const [token, setToken] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -13,6 +26,12 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuth }) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (locked) {
+      onRetryLockedToken?.();
+      return;
+    }
+
     setError('');
 
     if (!token.trim()) {
@@ -28,27 +47,30 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuth }) => {
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/validate', {
+      const deviceId = loadOrCreateDeviceId();
+      const response = await fetch(getApiUrl('/api/validate'), {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: token.trim() })
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ token: token.trim(), deviceId }),
       });
 
       if (!response.ok) {
-        throw new Error('Ошибка связи с сервером');
+        throw new Error('Ошибка сервера валидации');
       }
 
       const data = await response.json();
       if (!data.valid) {
-        throw new Error('Недействительный или отозванный токен');
+        throw new Error(resolveAuthError(data.error));
       }
 
       onAuth(token.trim());
     } catch (err: any) {
       if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        setError('Бэкенд-сервер отключен (rust-backend не запущен)');
+        setError(resolveAuthError('VALIDATION_UNAVAILABLE'));
       } else {
-        setError(err.message || 'Ошибка проверки токена');
+        setError(err.message || resolveAuthError());
       }
     } finally {
       setIsLoading(false);
@@ -62,6 +84,16 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuth }) => {
       <div className="bg-orb bg-orb-3" />
 
       <div className="auth-card">
+        {!locked && onBack && (
+          <button type="button" className="auth-back" onClick={onBack}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="19" y1="12" x2="5" y2="12" />
+              <polyline points="12 19 5 12 12 5" />
+            </svg>
+            Назад
+          </button>
+        )}
+
         <div className="auth-logo">
           <div className="auth-logo-icon">
             <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
@@ -77,31 +109,47 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuth }) => {
             </svg>
           </div>
           <h1 className="auth-title">LIMITLESS</h1>
-          <p className="auth-subtitle">Neural Network Interface</p>
+          <p className="auth-subtitle">Custom Prompt Access</p>
         </div>
 
         <form className="auth-form" onSubmit={handleSubmit}>
-          <div className={`auth-input-wrapper ${isFocused ? 'focused' : ''} ${error ? 'error' : ''}`}>
-            <div className="auth-input-icon">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-              </svg>
+          {!locked && (
+            <div className={`auth-input-wrapper ${isFocused ? 'focused' : ''} ${error ? 'error' : ''}`}>
+              <div className="auth-input-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                </svg>
+              </div>
+              <input
+                type="text"
+                className="auth-input"
+                placeholder="Вставьте токен из Telegram-бота"
+                value={token}
+                onChange={(e) => {
+                  setToken(e.target.value);
+                  setError('');
+                }}
+                onFocus={() => setIsFocused(true)}
+                onBlur={() => setIsFocused(false)}
+                autoComplete="off"
+                spellCheck={false}
+              />
             </div>
-            <input
-              type="text"
-              className="auth-input"
-              placeholder="Вставьте токен из Telegram бота"
-              value={token}
-              onChange={(e) => { setToken(e.target.value); setError(''); }}
-              onFocus={() => setIsFocused(true)}
-              onBlur={() => setIsFocused(false)}
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </div>
+          )}
 
-          {error && (
+          {locked && (
+            <div className="auth-info animate-fade-in-up">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M12 16v-4" />
+                <path d="M12 8h.01" />
+              </svg>
+              {lockedMessage || 'Это устройство уже активировано. Вход с другим токеном отключен.'}
+            </div>
+          )}
+
+          {error && !locked && (
             <div className="auth-error animate-fade-in-up">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <circle cx="12" cy="12" r="10" />
@@ -113,15 +161,16 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuth }) => {
           )}
 
           <button
-            type="submit"
+            type={locked ? 'button' : 'submit'}
             className={`auth-button ${isLoading ? 'loading' : ''}`}
             disabled={isLoading}
+            onClick={locked ? onRetryLockedToken : undefined}
           >
             {isLoading ? (
               <div className="auth-spinner" />
             ) : (
               <>
-                <span>Войти</span>
+                <span>{locked ? 'Повторить проверку' : 'Войти'}</span>
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <line x1="5" y1="12" x2="19" y2="12" />
                   <polyline points="12 5 19 12 12 19" />
@@ -132,18 +181,29 @@ export const AuthPage: React.FC<AuthPageProps> = ({ onAuth }) => {
         </form>
 
         <div className="auth-footer">
-          <p>Получите токен в <a href="https://t.me/LimitlesspromtShop_bot" target="_blank" rel="noopener noreferrer">Telegram боте</a></p>
+          <p>
+            Получите токен в{' '}
+            <a href="https://t.me/LimitlesspromtShop_bot" target="_blank" rel="noopener noreferrer">
+              Telegram-боте
+            </a>
+          </p>
         </div>
 
         <div className="auth-particles">
           {Array.from({ length: 20 }).map((_, i) => (
-            <div key={i} className="particle" style={{
-              '--delay': `${Math.random() * 5}s`,
-              '--duration': `${3 + Math.random() * 4}s`,
-              '--x': `${Math.random() * 100}%`,
-              '--y': `${Math.random() * 100}%`,
-              '--size': `${2 + Math.random() * 3}px`,
-            } as React.CSSProperties} />
+            <div
+              key={i}
+              className="particle"
+              style={
+                {
+                  '--delay': `${Math.random() * 5}s`,
+                  '--duration': `${3 + Math.random() * 4}s`,
+                  '--x': `${Math.random() * 100}%`,
+                  '--y': `${Math.random() * 100}%`,
+                  '--size': `${2 + Math.random() * 3}px`,
+                } as React.CSSProperties
+              }
+            />
           ))}
         </div>
       </div>

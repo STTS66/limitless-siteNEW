@@ -15,6 +15,11 @@ target/
 __pycache__/
 *.py[cod]
 *$py.class
+telegram-bot/auth.db
+telegram-bot/auth.db-*
+telegram-bot/tokens_db.json
+telegram-support-bot/support.db
+telegram-support-bot/support.db-*
 venv/
 env/
 ENV/
@@ -24,3 +29,6 @@ ENV/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Local logs
+.codex-logs/
