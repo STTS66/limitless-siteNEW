@@ -13,6 +13,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   primaryActionLabel = 'Войти по токену',
 }) => {
   const supportBotUrl = 'https://t.me/LimitlessSupport_bot';
+  const terminalLines = [
+    { kind: 'muted', text: 'limitless@node:~$ status' },
+    { kind: 'success', text: 'prompt profile: limitless-1.5' },
+    { kind: 'success', text: 'model route: gemini-3-flash' },
+    { kind: 'muted', text: 'limitless@node:~$ auth --bind device' },
+    { kind: 'success', text: 'device linked successfully' },
+    { kind: 'muted', text: 'limitless@node:~$ support --open telegram' },
+    { kind: 'accent', text: 'channel: @LimitlessSupport_bot' },
+  ];
 
   const scrollToSection = (sectionId: string) => {
     document.getElementById(sectionId)?.scrollIntoView({
@@ -69,37 +78,83 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
       <main className="landing-content">
         <section id="home" className="landing-hero">
-          <div className="landing-hero-badge">AI Mode</div>
-          <h1 className="landing-title">Limitless — готовый ИИ-режим для быстрых и более прямых ответов</h1>
-          <p className="landing-description">
-            Limitless — это преднастроенный режим работы ИИ для тех, кто хочет получить более собранный стиль ответа
-            без долгой ручной настройки. Купили доступ, активировали токен и сразу работаете в привычном интерфейсе.
-          </p>
+          <div className="landing-hero-grid">
+            <div className="landing-hero-copy">
+              <div className="landing-hero-badge">AI Mode</div>
+              <h1 className="landing-title">Limitless — готовый ИИ-режим для быстрых и более прямых ответов</h1>
+              <p className="landing-description">
+                Limitless — это преднастроенный режим работы ИИ для тех, кто хочет получить более собранный
+                стиль ответа без долгой ручной настройки. Купили доступ, активировали токен и сразу
+                работаете в привычном интерфейсе.
+              </p>
 
-          <div className="landing-section-buttons">
-            <button type="button" className="landing-pill-btn" onClick={() => scrollToSection('home')}>
-              Главная
-            </button>
-            <button type="button" className="landing-pill-btn" onClick={() => scrollToSection('about')}>
-              О нас
-            </button>
-            <button type="button" className="landing-pill-btn" onClick={openSupportBot}>
-              Поддержка
-            </button>
-          </div>
+              <div className="landing-section-buttons">
+                <button type="button" className="landing-pill-btn" onClick={() => scrollToSection('home')}>
+                  Главная
+                </button>
+                <button type="button" className="landing-pill-btn" onClick={() => scrollToSection('about')}>
+                  О нас
+                </button>
+                <button type="button" className="landing-pill-btn" onClick={openSupportBot}>
+                  Поддержка
+                </button>
+              </div>
 
-          <div className="landing-cta-row">
-            <button type="button" className="landing-primary-btn" onClick={onOpenAuth}>
-              {primaryActionLabel}
-            </button>
-            <a
-              className="landing-secondary-btn"
-              href="https://t.me/LimitlesspromtShop_bot"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Купить доступ в Telegram
-            </a>
+              <div className="landing-cta-row">
+                <button type="button" className="landing-primary-btn" onClick={onOpenAuth}>
+                  {primaryActionLabel}
+                </button>
+                <a
+                  className="landing-secondary-btn"
+                  href="https://t.me/LimitlesspromtShop_bot"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Купить доступ в Telegram
+                </a>
+              </div>
+            </div>
+
+            <div className="landing-terminal-shell" aria-label="Limitless terminal preview">
+              <div className="landing-terminal-window">
+                <div className="landing-terminal-toolbar">
+                  <div className="landing-terminal-dots">
+                    <span className="landing-terminal-dot terminal-dot-red" />
+                    <span className="landing-terminal-dot terminal-dot-yellow" />
+                    <span className="landing-terminal-dot terminal-dot-green" />
+                  </div>
+                  <span className="landing-terminal-title">root@limitless: /runtime/console</span>
+                  <span className="landing-terminal-chip">secure session</span>
+                </div>
+
+                <div className="landing-terminal-body">
+                  <div className="landing-terminal-prompt">
+                    <span className="landing-terminal-user">limitless@node</span>
+                    <span className="landing-terminal-separator">:</span>
+                    <span className="landing-terminal-path">~/access</span>
+                    <span className="landing-terminal-symbol">$</span>
+                    <span className="landing-terminal-command">boot --profile limitless</span>
+                  </div>
+
+                  <div className="landing-terminal-output">
+                    {terminalLines.map((line, index) => (
+                      <div
+                        key={`${line.text}-${index}`}
+                        className={`landing-terminal-line landing-terminal-line-${line.kind}`}
+                        style={{ animationDelay: `${0.18 + index * 0.08}s` }}
+                      >
+                        {line.text}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="landing-terminal-footer">
+                    <span className="landing-terminal-status">session ready</span>
+                    <span className="landing-terminal-cursor" />
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 
