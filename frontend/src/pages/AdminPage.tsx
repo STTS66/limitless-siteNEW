@@ -316,9 +316,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
                         autoFocus
                       />
                     </label>
-                    <button type="submit" className="admin-console-button" disabled={isLoggingIn}>
-                      {isLoggingIn ? 'authorizing...' : 'enter root shell'}
-                    </button>
+                    <div className="admin-console-status" aria-live="polite">
+                      {isLoggingIn ? 'authorizing...' : ''}
+                    </div>
                   </div>
                 </div>
               </form>

@@ -325,17 +325,10 @@
   border-bottom-color: rgba(113, 255, 173, 0.8);
 }
 
-.admin-console-button {
-  align-self: flex-start;
-  min-height: 42px;
-  padding: 0 16px;
-  border-radius: 12px;
-  border: 1px solid rgba(113, 255, 173, 0.28);
-  background: rgba(113, 255, 173, 0.08);
-  color: #d8ffea;
-  font-family: 'JetBrains Mono', monospace;
+.admin-console-status {
+  min-height: 20px;
+  color: rgba(170, 255, 199, 0.78);
   font-size: 13px;
-  text-transform: lowercase;
 }
 
 .admin-orb {
