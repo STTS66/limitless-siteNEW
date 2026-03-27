@@ -305,31 +305,8 @@
 
 .landing-terminal-shell {
   width: 100%;
-  padding: 0;
-  border: none;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
   opacity: 0;
   animation: fadeInUp 0.85s ease-out 0.26s both;
-}
-
-.landing-terminal-shell:hover .landing-terminal-window {
-  transform: translateY(-4px);
-  border-color: rgba(139, 92, 246, 0.28);
-  box-shadow:
-    0 28px 70px rgba(0, 0, 0, 0.36),
-    0 0 0 1px rgba(255, 255, 255, 0.04);
-}
-
-.landing-terminal-shell:focus-visible {
-  outline: none;
-}
-
-.landing-terminal-shell:focus-visible .landing-terminal-window {
-  box-shadow:
-    0 0 0 4px rgba(139, 92, 246, 0.14),
-    0 24px 60px rgba(0, 0, 0, 0.34);
 }
 
 .landing-terminal-window {
@@ -343,10 +320,6 @@
   box-shadow:
     0 24px 60px rgba(0, 0, 0, 0.34),
     0 0 0 1px rgba(255, 255, 255, 0.03);
-  transition:
-    transform var(--transition-base),
-    border-color var(--transition-base),
-    box-shadow var(--transition-base);
 }
 
 .landing-terminal-window::after {
@@ -454,6 +427,97 @@
   flex-direction: column;
   gap: 10px;
   min-height: 222px;
+}
+
+.landing-terminal-form {
+  margin-top: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.landing-terminal-input-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(139, 92, 246, 0.18);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.landing-terminal-inline-label {
+  color: rgba(220, 226, 255, 0.66);
+  font-size: 12px;
+  text-transform: lowercase;
+}
+
+.landing-terminal-input {
+  width: 100%;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: #f6f7ff;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+}
+
+.landing-terminal-input::placeholder {
+  color: rgba(220, 226, 255, 0.34);
+}
+
+.landing-terminal-input:focus {
+  outline: none;
+}
+
+.landing-terminal-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.landing-terminal-submit {
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(113, 255, 173, 0.26);
+  background: rgba(113, 255, 173, 0.08);
+  color: #d8ffea;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  text-transform: lowercase;
+  cursor: pointer;
+  transition:
+    transform var(--transition-base),
+    border-color var(--transition-base),
+    background var(--transition-base);
+}
+
+.landing-terminal-submit:hover {
+  transform: translateY(-1px);
+  border-color: rgba(113, 255, 173, 0.4);
+  background: rgba(113, 255, 173, 0.12);
+}
+
+.landing-terminal-submit:disabled {
+  opacity: 0.7;
+  cursor: wait;
+  transform: none;
+}
+
+.landing-terminal-feedback {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.landing-terminal-feedback-error {
+  color: #ffb0b0;
+}
+
+.landing-terminal-feedback-success {
+  color: #b8ffd4;
 }
 
 .landing-terminal-line {
@@ -861,6 +925,15 @@
     min-height: 0;
   }
 
+  .landing-terminal-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .landing-terminal-submit {
+    width: 100%;
+  }
+
   .landing-section {
     padding-top: 28px;
   }
@@ -1027,7 +1100,17 @@
   }
 
   .landing-terminal-prompt,
-  .landing-terminal-line {
+  .landing-terminal-line,
+  .landing-terminal-input,
+  .landing-terminal-feedback {
     font-size: 12px;
+  }
+
+  .landing-terminal-input-row {
+    grid-template-columns: auto 1fr;
+  }
+
+  .landing-terminal-inline-label {
+    display: none;
   }
 }

@@ -1,4 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { getApiUrl } from '../utils/api';
+import { saveAdminAuthToken } from '../utils/storage';
 import './LandingPage.css';
 
 interface LandingPageProps {
@@ -13,6 +15,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   primaryActionLabel = 'Войти по токену',
 }) => {
   const supportBotUrl = 'https://t.me/LimitlessSupport_bot';
+  const [terminalPassword, setTerminalPassword] = useState('');
+  const [terminalMessage, setTerminalMessage] = useState('');
+  const [terminalMessageType, setTerminalMessageType] = useState<'idle' | 'error' | 'success'>('idle');
+  const [isUnlocking, setIsUnlocking] = useState(false);
+
   const terminalLines = [
     { kind: 'muted', text: 'limitless@node:~$ status' },
     { kind: 'success', text: 'prompt profile: limitless-1.5' },
@@ -34,8 +41,46 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     window.open(supportBotUrl, '_blank', 'noopener,noreferrer');
   };
 
-  const openSecretConsole = () => {
-    window.location.assign('/sys/tty');
+  const handleTerminalLogin = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!terminalPassword.trim()) {
+      setTerminalMessage('Введите пароль доступа.');
+      setTerminalMessageType('error');
+      return;
+    }
+
+    setIsUnlocking(true);
+    setTerminalMessage('');
+    setTerminalMessageType('idle');
+
+    try {
+      const response = await fetch(getApiUrl('/api/admin/login'), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          username: 'admin',
+          password: terminalPassword.trim(),
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.token) {
+        throw new Error('Access denied');
+      }
+
+      saveAdminAuthToken(data.token);
+      setTerminalPassword('');
+      setTerminalMessage('Доступ открыт. Сессия администратора сохранена.');
+      setTerminalMessageType('success');
+    } catch {
+      setTerminalMessage('Неверный пароль или сервер недоступен.');
+      setTerminalMessageType('error');
+    } finally {
+      setIsUnlocking(false);
+    }
   };
 
   return (
@@ -119,12 +164,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               </div>
             </div>
 
-            <button
-              type="button"
-              className="landing-terminal-shell"
-              aria-label="Открыть скрытую консоль Limitless"
-              onClick={openSecretConsole}
-            >
+            <div className="landing-terminal-shell" aria-label="Limitless terminal access">
               <div className="landing-terminal-window">
                 <div className="landing-terminal-toolbar">
                   <div className="landing-terminal-dots">
@@ -157,13 +197,41 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                     ))}
                   </div>
 
+                  <form className="landing-terminal-form" onSubmit={handleTerminalLogin}>
+                    <label className="landing-terminal-input-row" htmlFor="landing-terminal-password">
+                      <span className="landing-terminal-symbol">$</span>
+                      <span className="landing-terminal-inline-label">password</span>
+                      <input
+                        id="landing-terminal-password"
+                        className="landing-terminal-input"
+                        type="password"
+                        value={terminalPassword}
+                        onChange={(e) => setTerminalPassword(e.target.value)}
+                        placeholder="enter root key"
+                        autoComplete="current-password"
+                        spellCheck={false}
+                      />
+                    </label>
+
+                    <div className="landing-terminal-actions">
+                      <button type="submit" className="landing-terminal-submit" disabled={isUnlocking}>
+                        {isUnlocking ? 'authorizing...' : 'unlock admin'}
+                      </button>
+                      {terminalMessage && (
+                        <span className={`landing-terminal-feedback landing-terminal-feedback-${terminalMessageType}`}>
+                          {terminalMessage}
+                        </span>
+                      )}
+                    </div>
+                  </form>
+
                   <div className="landing-terminal-footer">
-                    <span className="landing-terminal-status">session ready · tap to open shell</span>
+                    <span className="landing-terminal-status">inline shell ready</span>
                     <span className="landing-terminal-cursor" />
                   </div>
                 </div>
               </div>
-            </button>
+            </div>
           </div>
         </section>
 
