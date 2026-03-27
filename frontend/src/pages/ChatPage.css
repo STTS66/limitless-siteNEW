@@ -335,11 +335,74 @@
 }
 
 @media (max-width: 420px) {
+  .messages-container {
+    padding-top: calc(68px + var(--safe-top));
+    padding-right: calc(10px + var(--safe-right));
+    padding-left: calc(10px + var(--safe-left));
+  }
+
+  .empty-state {
+    gap: 10px;
+    padding: 18px 4px 4px;
+  }
+
+  .empty-state-icon svg {
+    width: 42px;
+    height: 42px;
+  }
+
+  .empty-state-title {
+    font-size: 20px;
+    letter-spacing: 1.4px;
+  }
+
+  .empty-state-text {
+    max-width: 240px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
   .empty-state-hints {
     justify-content: stretch;
+    gap: 8px;
   }
 
   .hint-chip {
     width: 100%;
+    min-height: 40px;
+    padding: 9px 12px;
+    font-size: 11px;
+  }
+
+  .chat-error {
+    width: calc(100% - 20px);
+    padding: 9px 10px;
+    font-size: 12px;
+  }
+
+  .input-container {
+    padding-right: calc(10px + var(--safe-right));
+    padding-bottom: calc(10px + var(--safe-bottom));
+    padding-left: calc(10px + var(--safe-left));
+  }
+
+  .input-wrapper {
+    border-radius: 18px;
+    padding: 5px 5px 5px 12px;
+  }
+
+  .chat-input {
+    min-height: 22px;
+  }
+
+  .send-button,
+  .stop-button {
+    width: 42px;
+    height: 42px;
+  }
+
+  .input-hint {
+    max-width: 260px;
+    margin: 8px auto 0;
   }
 }

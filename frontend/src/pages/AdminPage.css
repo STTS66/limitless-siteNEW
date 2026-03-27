@@ -295,3 +295,78 @@
     min-height: 360px;
   }
 }
+
+@media (max-width: 480px) {
+  .admin-shell {
+    width: min(100%, calc(100% - 14px));
+    padding:
+      calc(12px + var(--safe-top))
+      0
+      calc(14px + var(--safe-bottom));
+  }
+
+  .admin-topbar {
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .admin-card {
+    padding: 16px;
+    border-radius: 20px;
+  }
+
+  .admin-card-header {
+    gap: 14px;
+    margin-bottom: 18px;
+  }
+
+  .admin-kicker {
+    font-size: 11px;
+  }
+
+  .admin-title {
+    margin-top: 10px;
+    font-size: clamp(24px, 8vw, 30px);
+  }
+
+  .admin-subtitle,
+  .admin-banner {
+    font-size: 13px;
+  }
+
+  .admin-meta-card {
+    padding: 12px 14px;
+    border-radius: 16px;
+  }
+
+  .admin-meta-card strong {
+    font-size: 13px;
+  }
+
+  .admin-input,
+  .admin-textarea {
+    border-radius: 14px;
+    padding: 13px 14px;
+  }
+
+  .admin-textarea {
+    min-height: 300px;
+    line-height: 1.5;
+  }
+
+  .admin-primary-button,
+  .admin-secondary-button,
+  .admin-ghost-button {
+    width: 100%;
+  }
+
+  .admin-inline-button {
+    width: 100%;
+    min-height: 42px;
+    justify-content: center;
+  }
+
+  .admin-actions {
+    gap: 10px;
+  }
+}

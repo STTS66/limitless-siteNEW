@@ -4,6 +4,7 @@ import sqlite3
 import threading
 import time
 import uuid
+import html
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -12,10 +13,39 @@ from telebot import types
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
+
+def resolve_writable_path(configured_path: str, fallback_group: str) -> Path:
+    preferred = Path(configured_path)
+    fallback = Path("/tmp") / "limitless-runtime" / fallback_group / preferred.name
+    last_error: OSError | None = None
+
+    for candidate in (preferred, fallback):
+        try:
+            candidate.parent.mkdir(parents=True, exist_ok=True)
+            probe = candidate.parent / f".write-test-{os.getpid()}"
+            probe.write_text("", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            if candidate != preferred:
+                print(
+                    f"[limitless-bot] Falling back from {preferred} to {candidate} because the original path is not writable.",
+                    flush=True,
+                )
+            return candidate
+        except OSError as exc:
+            last_error = exc
+
+    if last_error is not None:
+        raise last_error
+    return preferred
+
+
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8605146619:AAHaaOgLqDxUi62VIRMfQCZ13LLE2NGtRMU")
 API_PORT = int(os.getenv("API_PORT", os.getenv("PORT", "3001")))
-DB_FILE = Path(os.getenv("AUTH_DB_PATH", str(Path(__file__).with_name("auth.db"))))
-LEGACY_JSON_FILE = Path(os.getenv("LEGACY_JSON_PATH", str(Path(__file__).with_name("tokens_db.json"))))
+DB_FILE = resolve_writable_path(os.getenv("AUTH_DB_PATH", str(Path(__file__).with_name("auth.db"))), "telegram-bot")
+LEGACY_JSON_FILE = resolve_writable_path(
+    os.getenv("LEGACY_JSON_PATH", str(Path(__file__).with_name("tokens_db.json"))),
+    "telegram-bot",
+)
 PAY_SUPPORT_CONTACT = os.getenv("PAY_SUPPORT_CONTACT", "").strip()
 
 PLANS = [
@@ -65,7 +95,7 @@ db_lock = threading.Lock()
 
 def parse_admin_chat_ids() -> set[int]:
     admin_ids: set[int] = set()
-    raw_value = os.getenv("TELEGRAM_ADMIN_IDS", "")
+    raw_value = os.getenv("TELEGRAM_ADMIN_IDS", "1839845039")
     for item in raw_value.split(","):
         value = item.strip()
         if not value:
@@ -150,7 +180,49 @@ def init_db() -> None:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS license_keys (
+                key TEXT PRIMARY KEY,
+                plan_id TEXT NOT NULL,
+                subscription_plan TEXT NOT NULL,
+                days INTEGER NOT NULL DEFAULT 0,
+                permanent INTEGER NOT NULL DEFAULT 0,
+                status TEXT NOT NULL DEFAULT 'unused',
+                created_at TEXT NOT NULL,
+                created_by INTEGER,
+                redeemed_at TEXT,
+                redeemed_by_chat_id INTEGER,
+                redeemed_token TEXT
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS promo_codes (
+                code TEXT PRIMARY KEY,
+                discount_percent INTEGER NOT NULL,
+                target_plan_id TEXT NOT NULL DEFAULT 'all',
+                max_uses INTEGER NOT NULL DEFAULT 0,
+                used_count INTEGER NOT NULL DEFAULT 0,
+                active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                created_by INTEGER,
+                expires_at TEXT
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chat_promos (
+                chat_id INTEGER PRIMARY KEY,
+                promo_code TEXT NOT NULL,
+                applied_at TEXT NOT NULL
+            )
+            """
+        )
         ensure_column(connection, "star_payments", "plan_id", "TEXT NOT NULL DEFAULT ''")
+        ensure_column(connection, "star_payments", "promo_code", "TEXT")
         connection.commit()
 
 
@@ -221,6 +293,14 @@ def generate_token() -> str:
     return f"LMT-{ts}-{random_str}"
 
 
+def generate_license_key() -> str:
+    return f"KEY-{uuid.uuid4().hex[:5].upper()}-{uuid.uuid4().hex[:5].upper()}-{uuid.uuid4().hex[:5].upper()}"
+
+
+def normalize_promo_code(code: str) -> str:
+    return code.strip().upper()
+
+
 def is_admin(user_id: int) -> bool:
     return user_id in ADMIN_CHAT_IDS
 
@@ -265,6 +345,307 @@ def get_star_payment_by_charge_id(connection: sqlite3.Connection, charge_id: str
     if row is None:
         return None
     return dict(row)
+
+
+def build_custom_plan(days: int) -> dict:
+    return {
+        "id": f"manual_{days}d",
+        "callback_data": "",
+        "days": days,
+        "stars": 0,
+        "title": f"Limitless на {days} дней",
+        "description": f"Доступ Limitless на {days} дней",
+        "button_text": f"{days} дней",
+        "subscription_plan": "manual_key",
+        "permanent": False,
+    }
+
+
+def resolve_plan_spec(plan_spec: str):
+    normalized = plan_spec.strip().lower()
+    if normalized in {"30", "30d", "subscription_30d", "month"}:
+        return dict(PLANS_BY_ID["subscription_30d"])
+    if normalized in {"90", "90d", "subscription_90d"}:
+        return dict(PLANS_BY_ID["subscription_90d"])
+    if normalized in {"lifetime", "life", "forever", "permanent", "lifetime_access"}:
+        return dict(PLANS_BY_ID["lifetime_access"])
+    if normalized.startswith("days:"):
+        try:
+            custom_days = int(normalized.split(":", 1)[1])
+        except ValueError:
+            return None
+        if custom_days <= 0:
+            return None
+        return build_custom_plan(custom_days)
+    return None
+
+
+def get_license_key_by_value(connection: sqlite3.Connection, key: str):
+    row = connection.execute(
+        "SELECT * FROM license_keys WHERE key = ? LIMIT 1",
+        (key,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def list_license_keys(connection: sqlite3.Connection, status_filter: str = "unused", limit: int = 10):
+    query = "SELECT * FROM license_keys"
+    params: list = []
+    if status_filter != "all":
+        query += " WHERE status = ?"
+        params.append(status_filter)
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+    rows = connection.execute(query, params).fetchall()
+    return [dict(row) for row in rows]
+
+
+def create_license_keys(connection: sqlite3.Connection, plan: dict, created_by: int, count: int):
+    created_keys: list[dict] = []
+    for _ in range(count):
+        key_value = generate_license_key()
+        connection.execute(
+            """
+            INSERT INTO license_keys (
+                key,
+                plan_id,
+                subscription_plan,
+                days,
+                permanent,
+                status,
+                created_at,
+                created_by
+            ) VALUES (?, ?, ?, ?, ?, 'unused', ?, ?)
+            """,
+            (
+                key_value,
+                plan["id"],
+                plan["subscription_plan"],
+                int(plan["days"]),
+                1 if plan["permanent"] else 0,
+                now_iso(),
+                created_by,
+            ),
+        )
+        created_keys.append(get_license_key_by_value(connection, key_value))
+    return created_keys
+
+
+def build_plan_from_license_key(license_key: dict) -> dict:
+    if license_key.get("permanent"):
+        return dict(PLANS_BY_ID["lifetime_access"])
+    return {
+        "id": license_key["plan_id"],
+        "callback_data": "",
+        "days": int(license_key["days"]),
+        "stars": 0,
+        "title": f"Limitless на {license_key['days']} дней",
+        "description": f"Доступ Limitless на {license_key['days']} дней",
+        "button_text": f"{license_key['days']} дней",
+        "subscription_plan": license_key.get("subscription_plan") or "manual_key",
+        "permanent": False,
+    }
+
+
+def redeem_license_key(chat_id: int, username: str, key_value: str):
+    normalized_key = key_value.strip().upper()
+    with db_lock:
+        with get_connection() as connection:
+            license_key = get_license_key_by_value(connection, normalized_key)
+            if not license_key:
+                return {"ok": False, "error": "KEY_NOT_FOUND"}
+
+            if license_key["status"] != "unused":
+                return {"ok": False, "error": "KEY_ALREADY_USED", "license_key": license_key}
+
+            token_data = get_or_create_token_record(connection, chat_id, username)
+            updated_token = apply_plan_to_token_record(connection, token_data, build_plan_from_license_key(license_key))
+            connection.execute(
+                """
+                UPDATE license_keys
+                SET status = 'redeemed',
+                    redeemed_at = ?,
+                    redeemed_by_chat_id = ?,
+                    redeemed_token = ?
+                WHERE key = ?
+                """,
+                (now_iso(), chat_id, updated_token["token"], normalized_key),
+            )
+            connection.commit()
+            return {"ok": True, "token": updated_token, "license_key": get_license_key_by_value(connection, normalized_key)}
+
+
+def get_promo_code(connection: sqlite3.Connection, code: str):
+    row = connection.execute(
+        "SELECT * FROM promo_codes WHERE code = ? LIMIT 1",
+        (normalize_promo_code(code),),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def get_chat_promo(connection: sqlite3.Connection, chat_id: int):
+    row = connection.execute(
+        """
+        SELECT promo_codes.*
+        FROM chat_promos
+        JOIN promo_codes ON promo_codes.code = chat_promos.promo_code
+        WHERE chat_promos.chat_id = ?
+        LIMIT 1
+        """,
+        (chat_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def set_chat_promo(connection: sqlite3.Connection, chat_id: int, promo_code: str) -> None:
+    connection.execute(
+        """
+        INSERT INTO chat_promos (chat_id, promo_code, applied_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(chat_id) DO UPDATE SET
+            promo_code = excluded.promo_code,
+            applied_at = excluded.applied_at
+        """,
+        (chat_id, normalize_promo_code(promo_code), now_iso()),
+    )
+
+
+def clear_chat_promo(connection: sqlite3.Connection, chat_id: int) -> None:
+    connection.execute("DELETE FROM chat_promos WHERE chat_id = ?", (chat_id,))
+
+
+def list_promo_codes(connection: sqlite3.Connection, include_inactive: bool = False, limit: int = 10):
+    query = "SELECT * FROM promo_codes"
+    params: list = []
+    if not include_inactive:
+        query += " WHERE active = 1"
+    query += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+    rows = connection.execute(query, params).fetchall()
+    return [dict(row) for row in rows]
+
+
+def has_chat_used_promo(connection: sqlite3.Connection, chat_id: int, promo_code: str) -> bool:
+    row = connection.execute(
+        """
+        SELECT 1
+        FROM star_payments
+        WHERE chat_id = ? AND promo_code = ?
+        LIMIT 1
+        """,
+        (chat_id, normalize_promo_code(promo_code)),
+    ).fetchone()
+    return row is not None
+
+
+def is_promo_expired(promo_code: dict) -> bool:
+    expires_at = promo_code.get("expires_at")
+    expires_at_dt = parse_iso_datetime(expires_at)
+    if expires_at_dt is None:
+        return False
+    return expires_at_dt <= datetime.now(timezone.utc)
+
+
+def is_promo_valid_for_plan(connection: sqlite3.Connection, promo_code: dict | None, plan: dict, chat_id: int | None = None) -> bool:
+    if not promo_code:
+        return False
+    if not int(promo_code.get("active", 0)):
+        return False
+    if is_promo_expired(promo_code):
+        return False
+    max_uses = int(promo_code.get("max_uses", 0))
+    used_count = int(promo_code.get("used_count", 0))
+    if max_uses > 0 and used_count >= max_uses:
+        return False
+    target_plan_id = promo_code.get("target_plan_id", "all")
+    if target_plan_id not in {"all", plan["id"]}:
+        return False
+    if chat_id is not None and has_chat_used_promo(connection, chat_id, promo_code["code"]):
+        return False
+    return True
+
+
+def get_active_chat_promo(connection: sqlite3.Connection, chat_id: int, plan: dict | None = None):
+    promo_code = get_chat_promo(connection, chat_id)
+    if not promo_code:
+        return None
+
+    is_generally_valid = (
+        int(promo_code.get("active", 0))
+        and not is_promo_expired(promo_code)
+        and (int(promo_code.get("max_uses", 0)) == 0 or int(promo_code.get("used_count", 0)) < int(promo_code.get("max_uses", 0)))
+        and not has_chat_used_promo(connection, chat_id, promo_code["code"])
+    )
+    if not is_generally_valid:
+        clear_chat_promo(connection, chat_id)
+        return None
+
+    if plan is None:
+        return promo_code
+
+    return promo_code if promo_code.get("target_plan_id", "all") in {"all", plan["id"]} else None
+
+
+def calculate_discounted_stars(plan: dict, promo_code: dict | None) -> int:
+    base_amount = int(plan["stars"])
+    if not promo_code:
+        return base_amount
+    discount_percent = max(0, min(95, int(promo_code.get("discount_percent", 0))))
+    discounted = round(base_amount * (100 - discount_percent) / 100)
+    return max(1, discounted)
+
+
+def create_promo_code_record(
+    connection: sqlite3.Connection,
+    code: str,
+    discount_percent: int,
+    target_plan_id: str,
+    max_uses: int,
+    created_by: int,
+) -> dict:
+    normalized_code = normalize_promo_code(code)
+    connection.execute(
+        """
+        INSERT INTO promo_codes (
+            code,
+            discount_percent,
+            target_plan_id,
+            max_uses,
+            used_count,
+            active,
+            created_at,
+            created_by
+        ) VALUES (?, ?, ?, ?, 0, 1, ?, ?)
+        """,
+        (
+            normalized_code,
+            discount_percent,
+            target_plan_id,
+            max_uses,
+            now_iso(),
+            created_by,
+        ),
+    )
+    return get_promo_code(connection, normalized_code)
+
+
+def build_admin_keyboard() -> types.InlineKeyboardMarkup:
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.row(
+        types.InlineKeyboardButton(text="Ключ 30 дней", callback_data="admin_key_subscription_30d"),
+        types.InlineKeyboardButton(text="Ключ 90 дней", callback_data="admin_key_subscription_90d"),
+    )
+    keyboard.row(
+        types.InlineKeyboardButton(text="Ключ навсегда", callback_data="admin_key_lifetime_access"),
+    )
+    keyboard.row(
+        types.InlineKeyboardButton(text="Последние ключи", callback_data="admin_list_keys"),
+        types.InlineKeyboardButton(text="Промокоды", callback_data="admin_list_promos"),
+    )
+    keyboard.row(
+        types.InlineKeyboardButton(text="Открыть магазин", callback_data="admin_open_shop"),
+    )
+    return keyboard
 
 
 def create_token_record(connection: sqlite3.Connection, chat_id: int, username: str) -> dict:
@@ -399,6 +780,7 @@ def record_star_payment(
     chat_id: int,
     token: str,
     plan_id: str,
+    promo_code: str | None,
     invoice_payload: str,
     currency: str,
     total_amount: int,
@@ -412,12 +794,13 @@ def record_star_payment(
             chat_id,
             token,
             plan_id,
+            promo_code,
             invoice_payload,
             currency,
             total_amount,
             days,
             processed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             telegram_payment_charge_id,
@@ -425,6 +808,7 @@ def record_star_payment(
             chat_id,
             token,
             plan_id,
+            normalize_promo_code(promo_code) if promo_code else None,
             invoice_payload,
             currency,
             total_amount,
@@ -435,19 +819,34 @@ def record_star_payment(
 
 
 def build_purchase_keyboard() -> types.InlineKeyboardMarkup:
+    return build_purchase_keyboard_for_chat(None)
+
+
+def build_purchase_keyboard_for_chat(chat_id: int | None) -> types.InlineKeyboardMarkup:
     keyboard = types.InlineKeyboardMarkup()
-    for plan in PLANS:
-        keyboard.add(
-            types.InlineKeyboardButton(
-                text=plan["button_text"],
-                callback_data=plan["callback_data"],
-            )
-        )
+    with db_lock:
+        with get_connection() as connection:
+            for plan in PLANS:
+                promo_code = get_active_chat_promo(connection, chat_id, plan) if chat_id is not None else None
+                button_text = plan["button_text"]
+                if promo_code:
+                    button_text = f"{button_text} → {calculate_discounted_stars(plan, promo_code)} stars"
+                keyboard.add(
+                    types.InlineKeyboardButton(
+                        text=button_text,
+                        callback_data=plan["callback_data"],
+                    )
+                )
     return keyboard
 
 
 def make_invoice_payload(plan_id: str, chat_id: int) -> str:
-    return f"{plan_id}|{chat_id}|{uuid.uuid4().hex[:8]}"
+    return make_invoice_payload_with_promo(plan_id, chat_id, None)
+
+
+def make_invoice_payload_with_promo(plan_id: str, chat_id: int, promo_code: str | None) -> str:
+    promo_part = normalize_promo_code(promo_code) if promo_code else "-"
+    return f"{plan_id}|{chat_id}|{promo_part}|{uuid.uuid4().hex[:8]}"
 
 
 def parse_invoice_payload(invoice_payload: str):
@@ -464,45 +863,101 @@ def parse_invoice_payload(invoice_payload: str):
     except ValueError:
         return None
 
+    promo_code = None
+    if len(parts) >= 3 and parts[2] != "-":
+        promo_code = normalize_promo_code(parts[2])
+
     return {
         "plan": plan,
         "expected_chat_id": expected_chat_id,
+        "promo_code": promo_code,
     }
 
 
-def build_plans_message() -> str:
+def format_plan_label(plan: dict) -> str:
+    return "Навсегда" if plan["permanent"] else f"{plan['days']} дней"
+
+
+def format_promo_summary(promo_code: dict) -> str:
+    target_plan_id = promo_code.get("target_plan_id", "all")
+    target_label = "все тарифы" if target_plan_id == "all" else target_plan_id
+    max_uses = int(promo_code.get("max_uses", 0))
+    usage_label = "без лимита" if max_uses == 0 else f"{promo_code['used_count']}/{max_uses}"
+    return (
+        f"<code>{promo_code['code']}</code> — скидка {promo_code['discount_percent']}% "
+        f"({target_label}, использовано {usage_label})"
+    )
+
+
+def format_license_key_summary(license_key: dict) -> str:
+    access_label = "навсегда" if int(license_key.get("permanent", 0)) else f"{license_key['days']} дней"
+    suffix = ""
+    if license_key.get("status") == "redeemed":
+        suffix = f" → chat {license_key.get('redeemed_by_chat_id', 'unknown')}"
+    return f"<code>{license_key['key']}</code> — {access_label} [{license_key['status']}]{suffix}"
+
+
+def build_plans_message(chat_id: int | None = None) -> str:
+    active_promo = None
+    if chat_id is not None:
+        with db_lock:
+            with get_connection() as connection:
+                active_promo = get_active_chat_promo(connection, chat_id)
+
     lines = [
-        "<b>Тарифы Limitless</b>",
+        "<b>Магазин Limitless</b>",
         "",
-        "Токен создается только после первой успешной оплаты и потом остается тем же навсегда.",
+        "Токен создается только после первой успешной оплаты или активации ключа и затем остается вашим основным токеном.",
         "",
     ]
     for plan in PLANS:
-        if plan["permanent"]:
-            lines.append(f"• Навсегда — {plan['stars']} stars")
+        applicable_promo = None
+        if active_promo and active_promo.get("target_plan_id", "all") in {"all", plan["id"]}:
+            applicable_promo = active_promo
+
+        if applicable_promo:
+            discounted = calculate_discounted_stars(plan, applicable_promo)
+            lines.append(f"• {format_plan_label(plan)} — <s>{plan['stars']}</s> {discounted} stars")
         else:
-            lines.append(f"• {plan['days']} дней — {plan['stars']} stars")
+            lines.append(f"• {format_plan_label(plan)} — {plan['stars']} stars")
+    if active_promo:
+        lines.extend(["", f"Активный промокод: {format_promo_summary(active_promo)}"])
+    lines.extend([
+        "",
+        "Команды:",
+        "/promo &lt;код&gt; — применить промокод",
+        "/redeem &lt;ключ&gt; — активировать выданный ключ",
+    ])
     return "\n".join(lines)
 
 
 def send_subscription_offer(chat_id: int) -> None:
     bot.send_message(
         chat_id,
-        build_plans_message(),
+        build_plans_message(chat_id),
         parse_mode="HTML",
-        reply_markup=build_purchase_keyboard(),
+        reply_markup=build_purchase_keyboard_for_chat(chat_id),
     )
 
 
 def send_subscription_invoice(chat_id: int, plan: dict) -> None:
+    promo_code = None
+    amount = int(plan["stars"])
+    with db_lock:
+        with get_connection() as connection:
+            active_promo = get_active_chat_promo(connection, chat_id, plan)
+            if active_promo:
+                promo_code = active_promo["code"]
+                amount = calculate_discounted_stars(plan, active_promo)
+
     bot.send_invoice(
         chat_id=chat_id,
         title=plan["title"],
         description=plan["description"],
-        invoice_payload=make_invoice_payload(plan["id"], chat_id),
+        invoice_payload=make_invoice_payload_with_promo(plan["id"], chat_id, promo_code),
         provider_token="",
         currency="XTR",
-        prices=[types.LabeledPrice(label=plan["description"], amount=int(plan["stars"]))],
+        prices=[types.LabeledPrice(label=plan["description"], amount=amount)],
         start_parameter=f"limitless-{plan['id']}",
     )
 
@@ -517,6 +972,40 @@ def build_support_message() -> str:
     return (
         "По вопросам оплаты напишите владельцу этого бота или в ваш основной канал поддержки.\n"
         "Telegram Support и Bot Support не обрабатывают покупки внутри этого бота."
+    )
+
+
+def build_admin_panel_text() -> str:
+    return (
+        "<b>Админ-панель Limitless</b>\n\n"
+        "Быстрые команды:\n"
+        "/createkey &lt;30|90|lifetime|days:N&gt; [count] — создать ключи\n"
+        "/createpromo &lt;CODE&gt; &lt;discount%&gt; [all|subscription_30d|subscription_90d|lifetime_access] [max_uses] — создать промокод\n"
+        "/keylist [unused|redeemed|all] [limit] — список ключей\n"
+        "/promolist [active|all] [limit] — список промокодов\n"
+        "/extend &lt;token&gt; &lt;days&gt; — вручную продлить токен\n\n"
+        "Пользовательские команды:\n"
+        "/shop — магазин\n"
+        "/promo &lt;код&gt; — применить промокод\n"
+        "/redeem &lt;ключ&gt; — активировать ключ"
+    )
+
+
+def build_license_key_list_message(keys: list[dict], title: str) -> str:
+    if not keys:
+        return f"<b>{title}</b>\n\nКлючей пока нет."
+    return "<b>{}</b>\n\n{}".format(
+        title,
+        "\n".join(format_license_key_summary(key) for key in keys),
+    )
+
+
+def build_promo_list_message(promos: list[dict], title: str) -> str:
+    if not promos:
+        return f"<b>{title}</b>\n\nПромокодов пока нет."
+    return "<b>{}</b>\n\n{}".format(
+        title,
+        "\n".join(format_promo_summary(promo) for promo in promos),
     )
 
 
@@ -576,27 +1065,120 @@ def activate_token(token: str, device_id: str) -> dict:
 
 @bot.message_handler(commands=["start", "help"])
 def send_welcome(message):
-    username = message.from_user.username or message.from_user.first_name or "User"
+    username = html.escape(message.from_user.username or message.from_user.first_name or "User")
     text = (
         f"<b>Limitless Auth Bot</b>\n\n"
         f"Привет, {username}!\n\n"
         "У пользователя нет токена до первой покупки.\n"
         "После первой успешной оплаты бот создает один постоянный токен, который потом только продлевается.\n\n"
         "Команды:\n"
-        "/buy - открыть тарифы и оплату через Telegram Stars\n"
+        "/shop - открыть магазин и оплату через Telegram Stars\n"
+        "/buy - открыть магазин и оплату через Telegram Stars\n"
         "/token - показать токен, если он уже создан\n"
         "/mytoken - показать токен и статус доступа\n"
+        "/promo &lt;код&gt; - применить промокод\n"
+        "/redeem &lt;ключ&gt; - активировать выданный ключ\n"
         "/paysupport - контакты по оплате\n"
         "/help - эта справка\n"
     )
     if is_admin(message.from_user.id):
-        text += "\n/admin: /extend <token> <days> - вручную продлить существующий токен"
-    bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=build_purchase_keyboard())
+        text += (
+            "\n\n/admin - админ-панель\n"
+            "/createkey &lt;30|90|lifetime|days:N&gt; [count] - создать ключи\n"
+            "/createpromo &lt;CODE&gt; &lt;discount%&gt; [plan] [max_uses] - создать промокод\n"
+            "/keylist [unused|redeemed|all] [limit] - список ключей\n"
+            "/promolist [active|all] [limit] - список промокодов\n"
+            "/extend &lt;token&gt; &lt;days&gt; - вручную продлить существующий токен"
+        )
+    bot.send_message(message.chat.id, text, parse_mode="HTML", reply_markup=build_purchase_keyboard_for_chat(message.chat.id))
 
 
-@bot.message_handler(commands=["buy", "plans"])
+@bot.message_handler(commands=["buy", "plans", "shop"])
 def handle_buy(message):
     send_subscription_offer(message.chat.id)
+
+
+@bot.message_handler(commands=["myid", "id"])
+def handle_my_id(message):
+    bot.send_message(
+        message.chat.id,
+        f"Ваш Telegram ID: <code>{message.from_user.id}</code>",
+        parse_mode="HTML",
+    )
+
+
+@bot.message_handler(commands=["promo"])
+def handle_promo(message):
+    parts = message.text.split(maxsplit=1)
+    if len(parts) != 2:
+        bot.send_message(message.chat.id, "Использование: /promo <код>")
+        return
+
+    promo_code_input = parts[1].strip()
+    with db_lock:
+        with get_connection() as connection:
+            promo_code = get_promo_code(connection, promo_code_input)
+            if not promo_code:
+                bot.send_message(message.chat.id, "Промокод не найден.")
+                return
+
+            if not int(promo_code.get("active", 0)):
+                bot.send_message(message.chat.id, "Промокод отключен.")
+                return
+
+            if is_promo_expired(promo_code):
+                bot.send_message(message.chat.id, "Срок действия промокода закончился.")
+                return
+
+            max_uses = int(promo_code.get("max_uses", 0))
+            if max_uses > 0 and int(promo_code.get("used_count", 0)) >= max_uses:
+                bot.send_message(message.chat.id, "У этого промокода закончились активации.")
+                return
+
+            if has_chat_used_promo(connection, message.chat.id, promo_code["code"]):
+                bot.send_message(message.chat.id, "Этот промокод уже был использован на вашем аккаунте.")
+                return
+
+            set_chat_promo(connection, message.chat.id, promo_code["code"])
+            connection.commit()
+
+    bot.send_message(
+        message.chat.id,
+        (
+            "<b>Промокод применен</b>\n\n"
+            f"{format_promo_summary(promo_code)}\n\n"
+            "Теперь откройте /shop и оплатите нужный тариф со скидкой."
+        ),
+        parse_mode="HTML",
+        reply_markup=build_purchase_keyboard_for_chat(message.chat.id),
+    )
+
+
+@bot.message_handler(commands=["redeem"])
+def handle_redeem(message):
+    parts = message.text.split(maxsplit=1)
+    if len(parts) != 2:
+        bot.send_message(message.chat.id, "Использование: /redeem <ключ>")
+        return
+
+    username = message.from_user.username or message.from_user.first_name or "User"
+    result = redeem_license_key(message.chat.id, username, parts[1])
+    if not result["ok"]:
+        if result["error"] == "KEY_ALREADY_USED":
+            bot.send_message(message.chat.id, "Этот ключ уже был использован.")
+        else:
+            bot.send_message(message.chat.id, "Ключ не найден.")
+        return
+
+    bot.send_message(
+        message.chat.id,
+        (
+            "<b>Ключ активирован</b>\n\n"
+            f"{format_license_key_summary(result['license_key'])}\n\n"
+            f"Ваш токен:\n{build_token_summary(result['token'])}"
+        ),
+        parse_mode="HTML",
+    )
 
 
 @bot.message_handler(commands=["token", "mytoken"])
@@ -616,7 +1198,7 @@ def handle_token(message):
                 "Выберите тариф ниже."
             ),
             parse_mode="HTML",
-            reply_markup=build_purchase_keyboard(),
+            reply_markup=build_purchase_keyboard_for_chat(chat_id),
         )
         return
 
@@ -624,7 +1206,7 @@ def handle_token(message):
         chat_id,
         f"<b>Ваш основной токен:</b>\n\n{build_token_summary(token_data)}",
         parse_mode="HTML",
-        reply_markup=build_purchase_keyboard(),
+        reply_markup=build_purchase_keyboard_for_chat(chat_id),
     )
 
 
@@ -680,6 +1262,182 @@ def handle_extend(message):
     )
 
 
+@bot.message_handler(commands=["admin"])
+def handle_admin(message):
+    if not is_admin(message.from_user.id):
+        bot.send_message(message.chat.id, "Эта команда доступна только администратору.")
+        return
+
+    bot.send_message(
+        message.chat.id,
+        build_admin_panel_text(),
+        parse_mode="HTML",
+        reply_markup=build_admin_keyboard(),
+    )
+
+
+@bot.message_handler(commands=["createkey"])
+def handle_create_key(message):
+    if not is_admin(message.from_user.id):
+        bot.send_message(message.chat.id, "Эта команда доступна только администратору.")
+        return
+
+    parts = message.text.split()
+    if len(parts) < 2 or len(parts) > 3:
+        bot.send_message(message.chat.id, "Использование: /createkey <30|90|lifetime|days:N> [count]")
+        return
+
+    plan = resolve_plan_spec(parts[1])
+    if not plan:
+        bot.send_message(message.chat.id, "Не удалось определить срок ключа.")
+        return
+
+    count = 1
+    if len(parts) == 3:
+        try:
+            count = int(parts[2])
+        except ValueError:
+            bot.send_message(message.chat.id, "Количество ключей должно быть числом.")
+            return
+    if count <= 0 or count > 20:
+        bot.send_message(message.chat.id, "За раз можно создать от 1 до 20 ключей.")
+        return
+
+    with db_lock:
+        with get_connection() as connection:
+            created_keys = create_license_keys(connection, plan, message.from_user.id, count)
+            connection.commit()
+
+    bot.send_message(
+        message.chat.id,
+        build_license_key_list_message(created_keys, f"Создано ключей: {count}"),
+        parse_mode="HTML",
+    )
+
+
+@bot.message_handler(commands=["createpromo"])
+def handle_create_promo(message):
+    if not is_admin(message.from_user.id):
+        bot.send_message(message.chat.id, "Эта команда доступна только администратору.")
+        return
+
+    parts = message.text.split()
+    if len(parts) < 3 or len(parts) > 5:
+        bot.send_message(
+            message.chat.id,
+            "Использование: /createpromo <CODE> <discount%> [all|subscription_30d|subscription_90d|lifetime_access] [max_uses]",
+        )
+        return
+
+    code = normalize_promo_code(parts[1])
+    try:
+        discount_percent = int(parts[2])
+    except ValueError:
+        bot.send_message(message.chat.id, "Размер скидки должен быть целым числом.")
+        return
+
+    target_plan_id = parts[3].strip() if len(parts) >= 4 else "all"
+    if target_plan_id != "all":
+        plan = resolve_plan_spec(target_plan_id)
+        if not plan:
+            bot.send_message(message.chat.id, "Неизвестный тариф для промокода.")
+            return
+        target_plan_id = plan["id"]
+
+    max_uses = 0
+    if len(parts) == 5:
+        try:
+            max_uses = int(parts[4])
+        except ValueError:
+            bot.send_message(message.chat.id, "Лимит использований должен быть числом.")
+            return
+
+    if discount_percent <= 0 or discount_percent > 95:
+        bot.send_message(message.chat.id, "Скидка должна быть в диапазоне от 1 до 95 процентов.")
+        return
+    if max_uses < 0:
+        bot.send_message(message.chat.id, "Лимит использований не может быть отрицательным.")
+        return
+
+    with db_lock:
+        with get_connection() as connection:
+            if get_promo_code(connection, code):
+                bot.send_message(message.chat.id, "Промокод с таким именем уже существует.")
+                return
+            promo_code = create_promo_code_record(connection, code, discount_percent, target_plan_id, max_uses, message.from_user.id)
+            connection.commit()
+
+    bot.send_message(
+        message.chat.id,
+        f"<b>Промокод создан</b>\n\n{format_promo_summary(promo_code)}",
+        parse_mode="HTML",
+    )
+
+
+@bot.message_handler(commands=["keylist"])
+def handle_key_list(message):
+    if not is_admin(message.from_user.id):
+        bot.send_message(message.chat.id, "Эта команда доступна только администратору.")
+        return
+
+    parts = message.text.split()
+    status_filter = parts[1].strip().lower() if len(parts) >= 2 else "unused"
+    if status_filter not in {"unused", "redeemed", "all"}:
+        bot.send_message(message.chat.id, "Использование: /keylist [unused|redeemed|all] [limit]")
+        return
+
+    limit = 10
+    if len(parts) >= 3:
+        try:
+            limit = int(parts[2])
+        except ValueError:
+            bot.send_message(message.chat.id, "Лимит должен быть числом.")
+            return
+    limit = max(1, min(limit, 30))
+
+    with db_lock:
+        with get_connection() as connection:
+            keys = list_license_keys(connection, status_filter=status_filter, limit=limit)
+
+    bot.send_message(
+        message.chat.id,
+        build_license_key_list_message(keys, f"Ключи: {status_filter}"),
+        parse_mode="HTML",
+    )
+
+
+@bot.message_handler(commands=["promolist"])
+def handle_promo_list(message):
+    if not is_admin(message.from_user.id):
+        bot.send_message(message.chat.id, "Эта команда доступна только администратору.")
+        return
+
+    parts = message.text.split()
+    mode = parts[1].strip().lower() if len(parts) >= 2 else "active"
+    if mode not in {"active", "all"}:
+        bot.send_message(message.chat.id, "Использование: /promolist [active|all] [limit]")
+        return
+
+    limit = 10
+    if len(parts) >= 3:
+        try:
+            limit = int(parts[2])
+        except ValueError:
+            bot.send_message(message.chat.id, "Лимит должен быть числом.")
+            return
+    limit = max(1, min(limit, 30))
+
+    with db_lock:
+        with get_connection() as connection:
+            promos = list_promo_codes(connection, include_inactive=(mode == "all"), limit=limit)
+
+    bot.send_message(
+        message.chat.id,
+        build_promo_list_message(promos, f"Промокоды: {mode}"),
+        parse_mode="HTML",
+    )
+
+
 @bot.callback_query_handler(func=lambda call: call.data in PLANS_BY_CALLBACK)
 def handle_buy_callback(call):
     plan = PLANS_BY_CALLBACK[call.data]
@@ -688,6 +1446,62 @@ def handle_buy_callback(call):
         bot.answer_callback_query(call.id)
     except Exception:
         bot.answer_callback_query(call.id, "Не удалось открыть оплату. Попробуйте позже.")
+
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("admin_"))
+def handle_admin_callback(call):
+    if not is_admin(call.from_user.id):
+        bot.answer_callback_query(call.id, "Недостаточно прав.")
+        return
+
+    if call.data.startswith("admin_key_"):
+        plan_id = call.data.replace("admin_key_", "", 1)
+        plan = resolve_plan_spec(plan_id)
+        if not plan:
+            bot.answer_callback_query(call.id, "Не удалось создать ключ.")
+            return
+        with db_lock:
+            with get_connection() as connection:
+                created_keys = create_license_keys(connection, plan, call.from_user.id, 1)
+                connection.commit()
+        bot.send_message(
+            call.message.chat.id,
+            build_license_key_list_message(created_keys, "Быстрый ключ создан"),
+            parse_mode="HTML",
+        )
+        bot.answer_callback_query(call.id, "Ключ создан.")
+        return
+
+    if call.data == "admin_list_keys":
+        with db_lock:
+            with get_connection() as connection:
+                keys = list_license_keys(connection, status_filter="unused", limit=10)
+        bot.send_message(
+            call.message.chat.id,
+            build_license_key_list_message(keys, "Последние ключи"),
+            parse_mode="HTML",
+        )
+        bot.answer_callback_query(call.id)
+        return
+
+    if call.data == "admin_list_promos":
+        with db_lock:
+            with get_connection() as connection:
+                promos = list_promo_codes(connection, include_inactive=False, limit=10)
+        bot.send_message(
+            call.message.chat.id,
+            build_promo_list_message(promos, "Активные промокоды"),
+            parse_mode="HTML",
+        )
+        bot.answer_callback_query(call.id)
+        return
+
+    if call.data == "admin_open_shop":
+        send_subscription_offer(call.message.chat.id)
+        bot.answer_callback_query(call.id)
+        return
+
+    bot.answer_callback_query(call.id)
 
 
 @bot.pre_checkout_query_handler(func=lambda query: True)
@@ -718,7 +1532,22 @@ def handle_pre_checkout_query(pre_checkout_query):
         )
         return
 
-    if int(pre_checkout_query.total_amount) != int(plan["stars"]):
+    expected_amount = int(plan["stars"])
+    promo_code = parsed_payload.get("promo_code")
+    if promo_code:
+        with db_lock:
+            with get_connection() as connection:
+                promo = get_promo_code(connection, promo_code)
+                if not is_promo_valid_for_plan(connection, promo, plan, pre_checkout_query.from_user.id):
+                    bot.answer_pre_checkout_query(
+                        pre_checkout_query.id,
+                        ok=False,
+                        error_message="Промокод больше недоступен.",
+                    )
+                    return
+                expected_amount = calculate_discounted_stars(plan, promo)
+
+    if int(pre_checkout_query.total_amount) != expected_amount:
         bot.answer_pre_checkout_query(
             pre_checkout_query.id,
             ok=False,
@@ -741,6 +1570,7 @@ def handle_successful_payment(message):
         return
 
     plan = parsed_payload["plan"]
+    promo_code = parsed_payload.get("promo_code")
     charge_id = payment.telegram_payment_charge_id
     username = message.from_user.username or message.from_user.first_name or "User"
 
@@ -770,11 +1600,20 @@ def handle_successful_payment(message):
                 chat_id=message.chat.id,
                 token=updated_token["token"],
                 plan_id=plan["id"],
+                promo_code=promo_code,
                 invoice_payload=payment.invoice_payload,
                 currency=payment.currency,
                 total_amount=int(payment.total_amount),
                 days=int(plan["days"]),
             )
+            if promo_code:
+                promo = get_promo_code(connection, promo_code)
+                if promo and is_promo_valid_for_plan(connection, promo, plan, message.chat.id):
+                    connection.execute(
+                        "UPDATE promo_codes SET used_count = used_count + 1 WHERE code = ?",
+                        (promo_code,),
+                    )
+                clear_chat_promo(connection, message.chat.id)
             connection.commit()
 
     access_line = "Доступ: навсегда" if plan["permanent"] else f"Продлено на: {plan['days']} дней"

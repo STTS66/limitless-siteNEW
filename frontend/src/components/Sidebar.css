@@ -298,6 +298,34 @@
   }
 }
 
+@media (max-width: 420px) {
+  .sidebar {
+    width: calc(100vw - 12px);
+    border-radius: 0 18px 18px 0;
+  }
+
+  .sidebar-header {
+    padding: calc(16px + var(--safe-top)) 14px 12px;
+  }
+
+  .new-chat-button {
+    margin: 12px 12px 6px;
+    padding: 11px 14px;
+  }
+
+  .sidebar-chats {
+    padding: 6px 8px;
+  }
+
+  .chat-item {
+    padding: 11px 10px;
+  }
+
+  .sidebar-footer {
+    padding: 10px 12px calc(10px + var(--safe-bottom));
+  }
+}
+
 @media (hover: none) {
   .chat-item-delete {
     opacity: 0.9;

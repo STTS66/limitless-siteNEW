@@ -9,11 +9,40 @@ from typing import Optional
 import telebot
 from flask import Flask, jsonify
 
+
+def resolve_writable_path(configured_path: str, fallback_group: str) -> Path:
+    preferred = Path(configured_path)
+    fallback = Path("/tmp") / "limitless-runtime" / fallback_group / preferred.name
+    last_error: OSError | None = None
+
+    for candidate in (preferred, fallback):
+        try:
+            candidate.parent.mkdir(parents=True, exist_ok=True)
+            probe = candidate.parent / f".write-test-{os.getpid()}"
+            probe.write_text("", encoding="utf-8")
+            probe.unlink(missing_ok=True)
+            if candidate != preferred:
+                print(
+                    f"[limitless-support-bot] Falling back from {preferred} to {candidate} because the original path is not writable.",
+                    flush=True,
+                )
+            return candidate
+        except OSError as exc:
+            last_error = exc
+
+    if last_error is not None:
+        raise last_error
+    return preferred
+
+
 BOT_TOKEN = os.getenv("SUPPORT_BOT_TOKEN", "8121934593:AAEMKjNDtNkGsetYyO_H5AsLd10Rl4eU7gU")
 OWNER_ID = int(os.getenv("SUPPORT_BOT_OWNER_ID", "1839845039"))
 RETRY_INTERVAL_SECONDS = max(5, int(os.getenv("SUPPORT_RETRY_INTERVAL_SECONDS", "15")))
 API_PORT = int(os.getenv("SUPPORT_API_PORT", os.getenv("PORT", "3002")))
-DB_FILE = Path(os.getenv("SUPPORT_DB_PATH", str(Path(__file__).with_name("support.db"))))
+DB_FILE = resolve_writable_path(
+    os.getenv("SUPPORT_DB_PATH", str(Path(__file__).with_name("support.db"))),
+    "support-bot",
+)
 
 if not BOT_TOKEN:
     raise RuntimeError("SUPPORT_BOT_TOKEN is required")

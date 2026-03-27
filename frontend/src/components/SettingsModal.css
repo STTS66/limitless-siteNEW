@@ -248,7 +248,7 @@
 
 @media (max-width: 640px) {
   .settings-overlay {
-    align-items: flex-end;
+    align-items: center;
     padding:
       calc(12px + var(--safe-top))
       calc(12px + var(--safe-right))
@@ -257,6 +257,7 @@
   }
 
   .settings-modal {
+    width: min(100%, 460px);
     max-width: none;
     max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 24px);
     border-radius: 20px;
@@ -298,5 +299,50 @@
     width: 100%;
     min-height: 46px;
     justify-content: center;
+  }
+}
+
+@media (max-width: 420px) {
+  .settings-overlay {
+    align-items: center;
+    padding:
+      calc(8px + var(--safe-top))
+      calc(8px + var(--safe-right))
+      calc(8px + var(--safe-bottom))
+      calc(8px + var(--safe-left));
+  }
+
+  .settings-modal {
+    max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 16px);
+    border-radius: 18px;
+  }
+
+  .settings-header {
+    padding: 16px 14px 12px;
+  }
+
+  .settings-close {
+    width: 34px;
+    height: 34px;
+  }
+
+  .settings-body {
+    padding: 14px;
+    gap: 16px;
+  }
+
+  .settings-title {
+    font-size: 15px;
+  }
+
+  .settings-hint,
+  .model-desc,
+  .prompt-desc {
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  .settings-footer {
+    padding: 12px 14px 14px;
   }
 }
