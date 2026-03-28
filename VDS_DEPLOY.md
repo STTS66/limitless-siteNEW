@@ -116,8 +116,16 @@ Restart after updates:
 ```bash
 cd /opt/limitless
 git pull
-docker compose --env-file .env.vds up -d --build
+bash deploy-vds.sh .env.vds
 ```
+
+This deployment path keeps the stack much steadier than a raw `docker compose up -d --build`:
+
+- PostgreSQL starts first
+- backend and both bots are recreated one by one
+- frontend is restarted last
+
+On a single VDS there can still be a very short blip while the `frontend` container is swapped, but the whole site will no longer drop because every service is rebuilt and recreated at the same time.
 
 Stop everything:
 
