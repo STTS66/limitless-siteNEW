@@ -26,8 +26,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
 
-  const isAdminAccessToken = (value: string) => /^ADM-[A-Z0-9-]{8,}$/i.test(value.trim());
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -53,7 +51,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     try {
       const trimmedToken = token.trim();
 
-      if (isAdminAccessToken(trimmedToken)) {
+      try {
         const adminResponse = await fetchApi('/api/admin/token-login', {
           method: 'POST',
           headers: {
@@ -63,12 +61,12 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         });
 
         const adminData = await adminResponse.json().catch(() => ({}));
-        if (!adminResponse.ok || !adminData?.token) {
-          throw new Error('Неверный админ-токен');
+        if (adminResponse.ok && adminData?.token) {
+          onAdminAuth(adminData.token);
+          return;
         }
-
-        onAdminAuth(adminData.token);
-        return;
+      } catch {
+        // Fallback to regular token validation without exposing a separate admin flow.
       }
 
       const deviceId = loadOrCreateDeviceId();
