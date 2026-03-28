@@ -127,6 +127,14 @@ function getPlanLabel(user: AdminUserRecord): string {
 }
 
 function resolveAdminError(error?: string): string {
+  if (error?.startsWith('PROMPT_SAVE_FAILED')) {
+    return 'Backend не смог сохранить промпт на диск. После этого обновления он должен автоматически переключиться на writable runtime storage. Сделайте redeploy backend.';
+  }
+
+  if (error?.startsWith('PROMPT_LOAD_FAILED')) {
+    return 'Backend не смог прочитать сохраненный промпт. Проверьте доступность storage и сделайте redeploy backend.';
+  }
+
   switch (error) {
     case 'ADMIN_USERS_PARSE_FAILED':
       return 'Сервис пользователей вернул неожиданный ответ. Обычно это значит, что backend и Telegram bot работают на разных версиях.';
@@ -400,7 +408,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
 
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data?.error || 'Не удалось сохранить промпт.');
+        throw new Error(resolveAdminError(data?.error));
       }
 
       applyPromptConfig(data);

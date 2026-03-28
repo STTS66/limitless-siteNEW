@@ -27,12 +27,14 @@ pub struct AppState {
 
 #[derive(Clone)]
 pub struct PromptStore {
-    pub file_path: PathBuf,
+    pub primary_path: PathBuf,
+    pub fallback_path: PathBuf,
 }
 
 #[derive(Clone)]
 pub struct AccountStore {
-    pub base_dir: PathBuf,
+    pub primary_base_dir: PathBuf,
+    pub fallback_base_dir: PathBuf,
 }
 
 #[derive(Clone)]
@@ -194,30 +196,48 @@ pub struct HealthResponse {
 
 impl PromptStore {
     pub fn new(file_path: PathBuf) -> Self {
-        Self { file_path }
+        let fallback_path = resolve_runtime_path("prompt-config.json");
+        Self {
+            primary_path: file_path,
+            fallback_path,
+        }
     }
 
     pub fn load(&self) -> Option<PromptConfig> {
-        let content = fs::read_to_string(&self.file_path).ok()?;
-        serde_json::from_str::<PromptConfig>(&content).ok()
+        for candidate in [&self.primary_path, &self.fallback_path] {
+            if let Ok(content) = fs::read_to_string(candidate) {
+                if let Ok(config) = serde_json::from_str::<PromptConfig>(&content) {
+                    return Some(config);
+                }
+            }
+        }
+
+        None
     }
 
     pub fn save(&self, config: &PromptConfig) -> Result<(), String> {
-        if let Some(parent) = self.file_path.parent() {
-            fs::create_dir_all(parent).map_err(|err| err.to_string())?;
-        }
-
         let payload = serde_json::to_string_pretty(config).map_err(|err| err.to_string())?;
-        fs::write(&self.file_path, payload).map_err(|err| err.to_string())
+
+        match write_file_with_parent_creation(&self.primary_path, &payload) {
+            Ok(_) => Ok(()),
+            Err(primary_error) => {
+                write_file_with_parent_creation(&self.fallback_path, &payload)
+                    .map_err(|fallback_error| format!("{primary_error}; fallback failed: {fallback_error}"))
+            }
+        }
     }
 }
 
 impl AccountStore {
     pub fn new(base_dir: PathBuf) -> Self {
-        Self { base_dir }
+        let fallback_base_dir = resolve_runtime_path("account-store");
+        Self {
+            primary_base_dir: base_dir,
+            fallback_base_dir,
+        }
     }
 
-    fn token_file_path(&self, token: &str) -> PathBuf {
+    fn token_file_path(base_dir: &PathBuf, token: &str) -> PathBuf {
         let safe_token: String = token
             .chars()
             .map(|ch| {
@@ -229,19 +249,49 @@ impl AccountStore {
             })
             .collect();
 
-        self.base_dir.join(format!("{safe_token}.json"))
+        base_dir.join(format!("{safe_token}.json"))
     }
 
     pub fn load(&self, token: &str) -> Option<AccountSnapshot> {
-        let content = fs::read_to_string(self.token_file_path(token)).ok()?;
-        serde_json::from_str::<AccountSnapshot>(&content).ok()
+        for candidate in [
+            Self::token_file_path(&self.primary_base_dir, token),
+            Self::token_file_path(&self.fallback_base_dir, token),
+        ] {
+            if let Ok(content) = fs::read_to_string(candidate) {
+                if let Ok(snapshot) = serde_json::from_str::<AccountSnapshot>(&content) {
+                    return Some(snapshot);
+                }
+            }
+        }
+
+        None
     }
 
     pub fn save(&self, token: &str, snapshot: &AccountSnapshot) -> Result<(), String> {
-        fs::create_dir_all(&self.base_dir).map_err(|err| err.to_string())?;
         let payload = serde_json::to_string_pretty(snapshot).map_err(|err| err.to_string())?;
-        fs::write(self.token_file_path(token), payload).map_err(|err| err.to_string())
+        let primary_path = Self::token_file_path(&self.primary_base_dir, token);
+        let fallback_path = Self::token_file_path(&self.fallback_base_dir, token);
+
+        match write_file_with_parent_creation(&primary_path, &payload) {
+            Ok(_) => Ok(()),
+            Err(primary_error) => {
+                write_file_with_parent_creation(&fallback_path, &payload)
+                    .map_err(|fallback_error| format!("{primary_error}; fallback failed: {fallback_error}"))
+            }
+        }
     }
+}
+
+fn resolve_runtime_path(name: &str) -> PathBuf {
+    std::env::temp_dir().join("limitless-runtime").join(name)
+}
+
+fn write_file_with_parent_creation(path: &PathBuf, payload: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+    }
+
+    fs::write(path, payload).map_err(|err| err.to_string())
 }
 
 fn fallback_prompt_config() -> PromptConfig {
