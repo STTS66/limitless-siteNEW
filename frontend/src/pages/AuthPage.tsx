@@ -66,7 +66,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
           return;
         }
       } catch {
-        // Fallback to regular token validation without exposing a separate admin flow.
+        // Keep regular auth flow silent if hidden admin login is unavailable.
       }
 
       const deviceId = loadOrCreateDeviceId();
@@ -79,7 +79,11 @@ export const AuthPage: React.FC<AuthPageProps> = ({
       });
 
       if (!response.ok) {
-        throw new Error('Ошибка сервера валидации');
+        const errorData = await response.clone().json().catch(() => null);
+        if (errorData?.error) {
+          throw new Error(resolveAuthError(errorData.error));
+        }
+        throw new Error(resolveAuthError('VALIDATION_UNAVAILABLE'));
       }
 
       const data = await response.json();
