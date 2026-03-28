@@ -166,6 +166,7 @@ pub struct AdminUsersSummary {
 #[serde(rename_all = "camelCase")]
 pub struct AdminUsersResponse {
     pub success: bool,
+    #[serde(default)]
     pub users: Vec<AdminUserRecord>,
     pub summary: Option<AdminUsersSummary>,
     pub error: Option<String>,
@@ -637,15 +638,24 @@ async fn admin_list_users(
     match response {
         Ok(resp) => {
             let status = resp.status();
-            match resp.json::<AdminUsersResponse>().await {
+            let body = resp.text().await.unwrap_or_default();
+
+            match serde_json::from_str::<AdminUsersResponse>(&body) {
                 Ok(payload) if status.is_success() => HttpResponse::Ok().json(payload),
                 Ok(payload) => HttpResponse::BadGateway().json(payload),
-                Err(_) => HttpResponse::BadGateway().json(AdminUsersResponse {
-                    success: false,
-                    users: vec![],
-                    summary: None,
-                    error: Some("ADMIN_USERS_PARSE_FAILED".to_string()),
-                }),
+                Err(_) => {
+                    let bridge_error = serde_json::from_str::<serde_json::Value>(&body)
+                        .ok()
+                        .and_then(|value| value.get("error").and_then(|error| error.as_str()).map(str::to_owned))
+                        .unwrap_or_else(|| "ADMIN_USERS_PARSE_FAILED".to_string());
+
+                    HttpResponse::BadGateway().json(AdminUsersResponse {
+                        success: false,
+                        users: vec![],
+                        summary: None,
+                        error: Some(bridge_error),
+                    })
+                }
             }
         }
         Err(_) => HttpResponse::BadGateway().json(AdminUsersResponse {
@@ -674,14 +684,23 @@ async fn admin_ban_user(
     match response {
         Ok(resp) => {
             let status = resp.status();
-            match resp.json::<AdminUserActionResponse>().await {
+            let body = resp.text().await.unwrap_or_default();
+
+            match serde_json::from_str::<AdminUserActionResponse>(&body) {
                 Ok(payload) if status.is_success() => HttpResponse::Ok().json(payload),
                 Ok(payload) => HttpResponse::BadGateway().json(payload),
-                Err(_) => HttpResponse::BadGateway().json(AdminUserActionResponse {
-                    success: false,
-                    user: None,
-                    error: Some("ADMIN_USER_ACTION_PARSE_FAILED".to_string()),
-                }),
+                Err(_) => {
+                    let bridge_error = serde_json::from_str::<serde_json::Value>(&body)
+                        .ok()
+                        .and_then(|value| value.get("error").and_then(|error| error.as_str()).map(str::to_owned))
+                        .unwrap_or_else(|| "ADMIN_USER_ACTION_PARSE_FAILED".to_string());
+
+                    HttpResponse::BadGateway().json(AdminUserActionResponse {
+                        success: false,
+                        user: None,
+                        error: Some(bridge_error),
+                    })
+                }
             }
         }
         Err(_) => HttpResponse::BadGateway().json(AdminUserActionResponse {
@@ -709,14 +728,23 @@ async fn admin_unban_user(
     match response {
         Ok(resp) => {
             let status = resp.status();
-            match resp.json::<AdminUserActionResponse>().await {
+            let body = resp.text().await.unwrap_or_default();
+
+            match serde_json::from_str::<AdminUserActionResponse>(&body) {
                 Ok(payload) if status.is_success() => HttpResponse::Ok().json(payload),
                 Ok(payload) => HttpResponse::BadGateway().json(payload),
-                Err(_) => HttpResponse::BadGateway().json(AdminUserActionResponse {
-                    success: false,
-                    user: None,
-                    error: Some("ADMIN_USER_ACTION_PARSE_FAILED".to_string()),
-                }),
+                Err(_) => {
+                    let bridge_error = serde_json::from_str::<serde_json::Value>(&body)
+                        .ok()
+                        .and_then(|value| value.get("error").and_then(|error| error.as_str()).map(str::to_owned))
+                        .unwrap_or_else(|| "ADMIN_USER_ACTION_PARSE_FAILED".to_string());
+
+                    HttpResponse::BadGateway().json(AdminUserActionResponse {
+                        success: false,
+                        user: None,
+                        error: Some(bridge_error),
+                    })
+                }
             }
         }
         Err(_) => HttpResponse::BadGateway().json(AdminUserActionResponse {

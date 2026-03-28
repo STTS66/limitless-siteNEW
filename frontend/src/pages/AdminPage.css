@@ -1,8 +1,11 @@
 .admin-page {
   position: relative;
+  height: 100dvh;
   min-height: 100dvh;
   width: 100%;
   overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
   background:
     radial-gradient(circle at top left, rgba(139, 92, 246, 0.2), transparent 32%),
     radial-gradient(circle at bottom right, rgba(76, 29, 149, 0.35), transparent 28%),
@@ -35,6 +38,7 @@
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(139, 92, 246, 0.08);
   backdrop-filter: blur(18px);
   padding: 28px;
+  overflow: visible;
 }
 
 .admin-card-header {
@@ -166,11 +170,33 @@
 }
 
 .admin-textarea {
-  min-height: 420px;
+  min-height: clamp(440px, 58dvh, 760px);
+  height: clamp(440px, 58dvh, 760px);
   resize: vertical;
+  overflow-y: auto;
   font-family: 'JetBrains Mono', monospace;
   font-size: 13px;
   line-height: 1.55;
+  white-space: pre-wrap;
+  tab-size: 2;
+}
+
+.admin-helper-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-helper-text {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.admin-helper-text-mono {
+  font-family: 'JetBrains Mono', monospace;
 }
 
 .admin-actions {
@@ -683,6 +709,7 @@
 
   .admin-textarea {
     min-height: 360px;
+    height: 360px;
   }
 
   .admin-tab {
@@ -793,6 +820,7 @@
 
   .admin-textarea {
     min-height: 300px;
+    height: 300px;
     line-height: 1.5;
   }
 

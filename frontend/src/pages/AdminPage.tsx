@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getApiUrl } from '../utils/api';
 import {
   DEFAULT_PROMPT_NAME,
@@ -43,13 +43,13 @@ interface AdminUserRecord {
 interface AdminUsersResponse {
   success: boolean;
   users?: AdminUserRecord[];
-  summary?: AdminUsersSummary;
+  summary?: AdminUsersSummary | null;
   error?: string;
 }
 
 interface AdminUserActionResponse {
   success: boolean;
-  user?: AdminUserRecord;
+  user?: AdminUserRecord | null;
   error?: string;
 }
 
@@ -81,7 +81,7 @@ function getAdminHeaders(token: string): HeadersInit {
 
 function formatDateTime(value?: string | null): string {
   if (!value) {
-    return '—';
+    return 'Нет данных';
   }
 
   const date = new Date(value);
@@ -126,7 +126,32 @@ function getPlanLabel(user: AdminUserRecord): string {
   }
 }
 
+function resolveAdminError(error?: string): string {
+  switch (error) {
+    case 'ADMIN_USERS_PARSE_FAILED':
+      return 'Сервис пользователей вернул неожиданный ответ. Обычно это значит, что backend и Telegram bot работают на разных версиях.';
+    case 'ADMIN_USERS_UNAVAILABLE':
+      return 'Сервис пользователей временно недоступен. Проверьте BOT_API_URL и состояние Telegram bot API.';
+    case 'ADMIN_BRIDGE_UNAUTHORIZED':
+      return 'Backend не авторизован в Telegram bot API. Сверьте BOT_INTERNAL_API_KEY в Rust backend и telegram-bot.';
+    case 'ADMIN_USER_ACTION_PARSE_FAILED':
+      return 'Не удалось разобрать ответ сервиса пользователей. Обновите backend и Telegram bot до одной версии.';
+    case 'ADMIN_USER_ACTION_UNAVAILABLE':
+      return 'Команда для пользователя не дошла до Telegram bot API. Проверьте BOT_API_URL и доступность сервиса.';
+    case 'TOKEN_NOT_FOUND':
+      return 'Пользователь с таким токеном не найден.';
+    case 'TOKEN_REQUIRED':
+      return 'Для действия не выбран токен пользователя.';
+    case 'ADMIN_AUTH_REQUIRED':
+    case 'ADMIN_AUTH_INVALID':
+      return 'Сессия администратора недействительна. Войдите заново.';
+    default:
+      return error || 'Произошла ошибка при работе с админ-панелью.';
+  }
+}
+
 export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = false }) => {
+  const promptTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [activeSection, setActiveSection] = useState<AdminSection>('prompt');
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
@@ -145,6 +170,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
   const [userActionToken, setUserActionToken] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
+  const [promptRenderKey, setPromptRenderKey] = useState(0);
 
   const visibleError = secretMode && error
     ? (password.trim() ? 'command rejected.' : 'input required.')
@@ -160,6 +186,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
 
     return formatDateTime(updatedAt);
   }, [updatedAt]);
+
+  const promptCharacters = useMemo(() => promptText.length, [promptText]);
 
   const applyPromptConfig = useCallback((config?: Partial<PromptConfig>) => {
     const merged = {
@@ -178,7 +206,22 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
         : SYSTEM_PROMPT,
     );
     setUpdatedAt(merged.updatedAt ?? null);
+    setPromptRenderKey((prev) => prev + 1);
   }, []);
+
+  useEffect(() => {
+    if (activeSection !== 'prompt') {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      if (promptTextareaRef.current) {
+        promptTextareaRef.current.scrollTop = 0;
+      }
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeSection, promptRenderKey]);
 
   const handleUnauthorized = useCallback(() => {
     clearAdminAuthToken();
@@ -211,8 +254,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
       const data = await response.json();
       applyPromptConfig(data);
       return true;
-    } catch (err: any) {
-      setError(err.message || 'Не удалось загрузить текущий промпт.');
+    } catch (requestError: any) {
+      setError(requestError.message || 'Не удалось загрузить текущий промпт.');
       return false;
     } finally {
       setIsLoadingPrompt(false);
@@ -240,14 +283,14 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
 
       const data: AdminUsersResponse = await response.json().catch(() => ({ success: false }));
       if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Не удалось загрузить пользователей.');
+        throw new Error(resolveAdminError(data.error));
       }
 
       setUsers(data.users ?? []);
       setSummary(data.summary ?? createEmptySummary());
       return true;
-    } catch (err: any) {
-      setError(err.message || 'Не удалось загрузить пользователей.');
+    } catch (requestError: any) {
+      setError(requestError.message || 'Не удалось загрузить пользователей.');
       return false;
     } finally {
       setIsLoadingUsers(false);
@@ -274,8 +317,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
     bootstrap();
   }, [loadAdminPrompt, loadAdminUsers]);
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleLogin = async (event: React.FormEvent) => {
+    event.preventDefault();
     setError('');
     setSuccessMessage('');
 
@@ -311,16 +354,16 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
         loadAdminPrompt(data.token),
         loadAdminUsers(data.token, ''),
       ]);
-    } catch (err: any) {
-      setError(err.message || 'Не удалось войти в админ-панель.');
+    } catch (requestError: any) {
+      setError(requestError.message || 'Не удалось войти в админ-панель.');
       setIsCheckingSession(false);
     } finally {
       setIsLoggingIn(false);
     }
   };
 
-  const handleSavePrompt = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSavePrompt = async (event: React.FormEvent) => {
+    event.preventDefault();
     if (!authToken) {
       setError('Сначала войдите в админ-панель.');
       return;
@@ -362,8 +405,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
 
       applyPromptConfig(data);
       setSuccessMessage('Промпт обновлен.');
-    } catch (err: any) {
-      setError(err.message || 'Не удалось сохранить промпт.');
+    } catch (requestError: any) {
+      setError(requestError.message || 'Не удалось сохранить промпт.');
     } finally {
       setIsSaving(false);
     }
@@ -376,7 +419,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
   };
 
   const handleLogout = async () => {
-    const token = authToken;
+    const currentToken = authToken;
     clearAdminAuthToken();
     setAuthToken(null);
     setPassword('');
@@ -385,22 +428,22 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
     setSuccessMessage('');
     applyPromptConfig();
 
-    if (!token) {
+    if (!currentToken) {
       return;
     }
 
     try {
       await fetch(getApiUrl('/api/admin/logout'), {
         method: 'POST',
-        headers: getAdminHeaders(token),
+        headers: getAdminHeaders(currentToken),
       });
     } catch {
       // Best effort logout.
     }
   };
 
-  const handleUsersSearchSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleUsersSearchSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
     if (!authToken) {
       return;
     }
@@ -443,17 +486,17 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
 
       const data: AdminUserActionResponse = await response.json().catch(() => ({ success: false }));
       if (!response.ok || !data.success || !data.user) {
-        throw new Error(data.error || 'Не удалось обновить пользователя.');
+        throw new Error(resolveAdminError(data.error));
       }
 
-      setUsers((prevUsers) => prevUsers.map((item) => (
+      setUsers((previousUsers) => previousUsers.map((item) => (
         item.token === data.user?.token ? data.user : item
       )));
-      setSummary((prevSummary) => {
+      setSummary((previousSummary) => {
         const delta = action === 'ban' ? 1 : -1;
         return {
-          ...prevSummary,
-          bannedUsers: Math.max(0, prevSummary.bannedUsers + delta),
+          ...previousSummary,
+          bannedUsers: Math.max(0, previousSummary.bannedUsers + delta),
         };
       });
       setSuccessMessage(
@@ -461,8 +504,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
           ? `Пользователь ${user.username} забанен.`
           : `Пользователь ${user.username} разбанен.`,
       );
-    } catch (err: any) {
-      setError(err.message || 'Не удалось обновить пользователя.');
+    } catch (requestError: any) {
+      setError(requestError.message || 'Не удалось обновить пользователя.');
     } finally {
       setUserActionToken(null);
     }
@@ -570,7 +613,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
                     </div>
                     <div className="admin-user-detail admin-user-detail-wide">
                       <span className="admin-user-detail-label">Device ID</span>
-                      <span className="admin-user-detail-value admin-user-detail-mono">{user.activatedDeviceId || '—'}</span>
+                      <span className="admin-user-detail-value admin-user-detail-mono">{user.activatedDeviceId || 'Нет данных'}</span>
                     </div>
                     <div className="admin-user-detail">
                       <span className="admin-user-detail-label">Бан</span>
@@ -643,13 +686,20 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
             </button>
           </div>
           <textarea
+            key={promptRenderKey}
+            ref={promptTextareaRef}
             id="prompt-text"
             className="admin-textarea"
             value={promptText}
             onChange={(e) => setPromptText(e.target.value)}
             placeholder="Введите новый системный промпт и инструкции"
             spellCheck={false}
+            rows={24}
           />
+          <div className="admin-helper-row">
+            <span className="admin-helper-text">Поле поддерживает длинные инструкции и прокручивается отдельно от страницы.</span>
+            <span className="admin-helper-text admin-helper-text-mono">{promptCharacters} символов</span>
+          </div>
         </div>
 
         <div className="admin-actions">
