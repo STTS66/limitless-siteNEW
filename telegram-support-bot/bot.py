@@ -9,6 +9,8 @@ from typing import Optional
 import telebot
 from flask import Flask, jsonify
 
+from db import ConnectionProxy, connect_database, is_postgres_url
+
 
 def resolve_writable_path(configured_path: str, fallback_group: str) -> Path:
     preferred = Path(configured_path)
@@ -40,9 +42,14 @@ OWNER_ID_RAW = os.getenv("SUPPORT_BOT_OWNER_ID", "").strip()
 OWNER_ID = int(OWNER_ID_RAW or "0")
 RETRY_INTERVAL_SECONDS = max(5, int(os.getenv("SUPPORT_RETRY_INTERVAL_SECONDS", "15")))
 API_PORT = int(os.getenv("SUPPORT_API_PORT", os.getenv("PORT", "3002")))
-DB_FILE = resolve_writable_path(
-    os.getenv("SUPPORT_DB_PATH", str(Path(__file__).with_name("support.db"))),
-    "support-bot",
+DATABASE_URL = os.getenv("SUPPORT_DATABASE_URL", os.getenv("DATABASE_URL", "")).strip()
+DB_FILE = (
+    resolve_writable_path(
+        os.getenv("SUPPORT_DB_PATH", str(Path(__file__).with_name("support.db"))),
+        "support-bot",
+    )
+    if not is_postgres_url(DATABASE_URL)
+    else Path(os.getenv("SUPPORT_DB_PATH", str(Path(__file__).with_name("support.db"))))
 )
 
 if not BOT_TOKEN:
@@ -73,58 +80,107 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def get_connection() -> sqlite3.Connection:
-    connection = sqlite3.connect(DB_FILE)
-    connection.row_factory = sqlite3.Row
-    return connection
+def get_connection() -> ConnectionProxy:
+    return connect_database(DATABASE_URL, DB_FILE)
+
+
+def is_postgres_connection(connection: ConnectionProxy) -> bool:
+    return getattr(connection, "backend", "sqlite") == "postgres"
 
 
 def init_db() -> None:
-    DB_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if not is_postgres_url(DATABASE_URL):
+        DB_FILE.parent.mkdir(parents=True, exist_ok=True)
+
     with get_connection() as connection:
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS admins (
-                user_id INTEGER PRIMARY KEY,
-                role TEXT NOT NULL,
-                username TEXT,
-                display_name TEXT,
-                added_by INTEGER NOT NULL,
-                added_at TEXT NOT NULL
+        if is_postgres_connection(connection):
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS admins (
+                    user_id BIGINT PRIMARY KEY,
+                    role TEXT NOT NULL,
+                    username TEXT,
+                    display_name TEXT,
+                    added_by BIGINT NOT NULL,
+                    added_at TEXT NOT NULL
+                )
+                """
             )
-            """
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS relay_messages (
-                admin_chat_id INTEGER NOT NULL,
-                admin_message_id INTEGER NOT NULL,
-                user_chat_id INTEGER NOT NULL,
-                user_message_id INTEGER NOT NULL,
-                created_at TEXT NOT NULL,
-                PRIMARY KEY (admin_chat_id, admin_message_id)
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS relay_messages (
+                    admin_chat_id BIGINT NOT NULL,
+                    admin_message_id BIGINT NOT NULL,
+                    user_chat_id BIGINT NOT NULL,
+                    user_message_id BIGINT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (admin_chat_id, admin_message_id)
+                )
+                """
             )
-            """
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS support_messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_chat_id INTEGER NOT NULL,
-                user_message_id INTEGER NOT NULL,
-                user_id INTEGER NOT NULL,
-                username TEXT,
-                display_name TEXT,
-                content_type TEXT NOT NULL,
-                status TEXT NOT NULL DEFAULT 'pending',
-                delivered_count INTEGER NOT NULL DEFAULT 0,
-                last_error TEXT,
-                created_at TEXT NOT NULL,
-                forwarded_at TEXT,
-                UNIQUE (user_chat_id, user_message_id)
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS support_messages (
+                    id BIGSERIAL PRIMARY KEY,
+                    user_chat_id BIGINT NOT NULL,
+                    user_message_id BIGINT NOT NULL,
+                    user_id BIGINT NOT NULL,
+                    username TEXT,
+                    display_name TEXT,
+                    content_type TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    delivered_count INTEGER NOT NULL DEFAULT 0,
+                    last_error TEXT,
+                    created_at TEXT NOT NULL,
+                    forwarded_at TEXT,
+                    UNIQUE (user_chat_id, user_message_id)
+                )
+                """
             )
-            """
-        )
+        else:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS admins (
+                    user_id INTEGER PRIMARY KEY,
+                    role TEXT NOT NULL,
+                    username TEXT,
+                    display_name TEXT,
+                    added_by INTEGER NOT NULL,
+                    added_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS relay_messages (
+                    admin_chat_id INTEGER NOT NULL,
+                    admin_message_id INTEGER NOT NULL,
+                    user_chat_id INTEGER NOT NULL,
+                    user_message_id INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (admin_chat_id, admin_message_id)
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS support_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_chat_id INTEGER NOT NULL,
+                    user_message_id INTEGER NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    username TEXT,
+                    display_name TEXT,
+                    content_type TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    delivered_count INTEGER NOT NULL DEFAULT 0,
+                    last_error TEXT,
+                    created_at TEXT NOT NULL,
+                    forwarded_at TEXT,
+                    UNIQUE (user_chat_id, user_message_id)
+                )
+                """
+            )
         connection.execute(
             """
             INSERT INTO admins (user_id, role, username, display_name, added_by, added_at)
@@ -134,6 +190,133 @@ def init_db() -> None:
             (OWNER_ID, OWNER_ID, now_iso()),
         )
         connection.commit()
+
+
+def migrate_sqlite_db_to_postgres() -> None:
+    if not is_postgres_url(DATABASE_URL) or not DB_FILE.exists():
+        return
+
+    source = sqlite3.connect(DB_FILE)
+    source.row_factory = sqlite3.Row
+
+    try:
+        with get_connection() as target:
+            existing_messages = int(target.execute("SELECT COUNT(*) FROM support_messages").fetchone()[0])
+            existing_relays = int(target.execute("SELECT COUNT(*) FROM relay_messages").fetchone()[0])
+            if existing_messages > 0 or existing_relays > 0:
+                return
+
+            admin_rows = source.execute(
+                "SELECT user_id, role, username, display_name, added_by, added_at FROM admins"
+            ).fetchall()
+            for row in admin_rows:
+                target.execute(
+                    """
+                    INSERT INTO admins (user_id, role, username, display_name, added_by, added_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(user_id) DO UPDATE SET
+                        role = EXCLUDED.role,
+                        username = EXCLUDED.username,
+                        display_name = EXCLUDED.display_name,
+                        added_by = EXCLUDED.added_by,
+                        added_at = EXCLUDED.added_at
+                    """,
+                    (
+                        row["user_id"],
+                        row["role"],
+                        row["username"],
+                        row["display_name"],
+                        row["added_by"],
+                        row["added_at"],
+                    ),
+                )
+
+            relay_rows = source.execute(
+                """
+                SELECT admin_chat_id, admin_message_id, user_chat_id, user_message_id, created_at
+                FROM relay_messages
+                """
+            ).fetchall()
+            for row in relay_rows:
+                target.execute(
+                    """
+                    INSERT INTO relay_messages (
+                        admin_chat_id,
+                        admin_message_id,
+                        user_chat_id,
+                        user_message_id,
+                        created_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(admin_chat_id, admin_message_id) DO UPDATE SET
+                        user_chat_id = EXCLUDED.user_chat_id,
+                        user_message_id = EXCLUDED.user_message_id,
+                        created_at = EXCLUDED.created_at
+                    """,
+                    (
+                        row["admin_chat_id"],
+                        row["admin_message_id"],
+                        row["user_chat_id"],
+                        row["user_message_id"],
+                        row["created_at"],
+                    ),
+                )
+
+            message_rows = source.execute(
+                """
+                SELECT id, user_chat_id, user_message_id, user_id, username, display_name, content_type,
+                       status, delivered_count, last_error, created_at, forwarded_at
+                FROM support_messages
+                ORDER BY id ASC
+                """
+            ).fetchall()
+            for row in message_rows:
+                target.execute(
+                    """
+                    INSERT INTO support_messages (
+                        id,
+                        user_chat_id,
+                        user_message_id,
+                        user_id,
+                        username,
+                        display_name,
+                        content_type,
+                        status,
+                        delivered_count,
+                        last_error,
+                        created_at,
+                        forwarded_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO NOTHING
+                    """,
+                    (
+                        row["id"],
+                        row["user_chat_id"],
+                        row["user_message_id"],
+                        row["user_id"],
+                        row["username"],
+                        row["display_name"],
+                        row["content_type"],
+                        row["status"],
+                        row["delivered_count"],
+                        row["last_error"],
+                        row["created_at"],
+                        row["forwarded_at"],
+                    ),
+                )
+
+            target.execute(
+                """
+                SELECT setval(
+                    pg_get_serial_sequence('support_messages', 'id'),
+                    COALESCE((SELECT MAX(id) FROM support_messages), 1),
+                    true
+                )
+                """
+            )
+            target.commit()
+            log("[limitless-support-bot] Migrated SQLite support data into PostgreSQL.")
+    finally:
+        source.close()
 
 
 def row_to_dict(row: sqlite3.Row | None) -> Optional[dict]:
@@ -213,18 +396,36 @@ def list_admins() -> list[dict]:
 
 def store_relay(admin_chat_id: int, admin_message_id: int, user_chat_id: int, user_message_id: int) -> None:
     with get_connection() as connection:
-        connection.execute(
-            """
-            INSERT OR REPLACE INTO relay_messages (
-                admin_chat_id,
-                admin_message_id,
-                user_chat_id,
-                user_message_id,
-                created_at
-            ) VALUES (?, ?, ?, ?, ?)
-            """,
-            (admin_chat_id, admin_message_id, user_chat_id, user_message_id, now_iso()),
-        )
+        if is_postgres_connection(connection):
+            connection.execute(
+                """
+                INSERT INTO relay_messages (
+                    admin_chat_id,
+                    admin_message_id,
+                    user_chat_id,
+                    user_message_id,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(admin_chat_id, admin_message_id) DO UPDATE SET
+                    user_chat_id = EXCLUDED.user_chat_id,
+                    user_message_id = EXCLUDED.user_message_id,
+                    created_at = EXCLUDED.created_at
+                """,
+                (admin_chat_id, admin_message_id, user_chat_id, user_message_id, now_iso()),
+            )
+        else:
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO relay_messages (
+                    admin_chat_id,
+                    admin_message_id,
+                    user_chat_id,
+                    user_message_id,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (admin_chat_id, admin_message_id, user_chat_id, user_message_id, now_iso()),
+            )
         connection.commit()
 
 
@@ -289,33 +490,56 @@ def queue_support_message(message) -> dict:
         if existing is not None:
             return dict(existing)
 
-        cursor = connection.execute(
-            """
-            INSERT INTO support_messages (
-                user_chat_id,
-                user_message_id,
-                user_id,
-                username,
-                display_name,
-                content_type,
-                status,
-                delivered_count,
-                last_error,
-                created_at,
-                forwarded_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, NULL, ?, NULL)
-            """,
-            (
-                message.chat.id,
-                message.message_id,
-                message.from_user.id,
-                message.from_user.username or "",
-                message.from_user.first_name or message.from_user.username or str(message.from_user.id),
-                message.content_type,
-                now_iso(),
-            ),
+        params = (
+            message.chat.id,
+            message.message_id,
+            message.from_user.id,
+            message.from_user.username or "",
+            message.from_user.first_name or message.from_user.username or str(message.from_user.id),
+            message.content_type,
+            now_iso(),
         )
-        record_id = cursor.lastrowid
+        if is_postgres_connection(connection):
+            row = connection.execute(
+                """
+                INSERT INTO support_messages (
+                    user_chat_id,
+                    user_message_id,
+                    user_id,
+                    username,
+                    display_name,
+                    content_type,
+                    status,
+                    delivered_count,
+                    last_error,
+                    created_at,
+                    forwarded_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, NULL, ?, NULL)
+                RETURNING id
+                """,
+                params,
+            ).fetchone()
+            record_id = row["id"]
+        else:
+            cursor = connection.execute(
+                """
+                INSERT INTO support_messages (
+                    user_chat_id,
+                    user_message_id,
+                    user_id,
+                    username,
+                    display_name,
+                    content_type,
+                    status,
+                    delivered_count,
+                    last_error,
+                    created_at,
+                    forwarded_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'pending', 0, NULL, ?, NULL)
+                """,
+                params,
+            )
+            record_id = cursor.lastrowid
         row = connection.execute(
             "SELECT * FROM support_messages WHERE id = ? LIMIT 1",
             (record_id,),
@@ -639,6 +863,7 @@ def handle_unsupported(message):
 
 if __name__ == "__main__":
     init_db()
+    migrate_sqlite_db_to_postgres()
     threading.Thread(
         target=run_flask,
         name="support-http-api",

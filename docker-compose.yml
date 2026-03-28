@@ -1,4 +1,19 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   frontend:
     build:
       context: ./frontend
@@ -36,11 +51,15 @@ services:
   telegram-bot:
     build:
       context: ./telegram-bot
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       PORT: 3001
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
       TELEGRAM_ADMIN_IDS: ${TELEGRAM_ADMIN_IDS}
       PAY_SUPPORT_CONTACT: ${PAY_SUPPORT_CONTACT}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       AUTH_DB_PATH: /data/auth.db
       LEGACY_JSON_PATH: /data/tokens_db.json
       BOT_INTERNAL_API_KEY: ${BOT_INTERNAL_API_KEY}
@@ -51,17 +70,22 @@ services:
   support-bot:
     build:
       context: ./telegram-support-bot
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       SUPPORT_API_PORT: 3002
       SUPPORT_BOT_TOKEN: ${SUPPORT_BOT_TOKEN}
       SUPPORT_BOT_OWNER_ID: ${SUPPORT_BOT_OWNER_ID}
       SUPPORT_RETRY_INTERVAL_SECONDS: ${SUPPORT_RETRY_INTERVAL_SECONDS}
+      SUPPORT_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       SUPPORT_DB_PATH: /data/support.db
     restart: unless-stopped
     volumes:
       - support_bot_data:/data
 
 volumes:
+  postgres_data:
   backend_data:
   telegram_bot_data:
   support_bot_data:

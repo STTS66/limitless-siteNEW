@@ -13,6 +13,8 @@ from telebot import types
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
+from db import ConnectionProxy, connect_database, is_postgres_url
+
 
 def resolve_writable_path(configured_path: str, fallback_group: str) -> Path:
     preferred = Path(configured_path)
@@ -41,7 +43,12 @@ def resolve_writable_path(configured_path: str, fallback_group: str) -> Path:
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 API_PORT = int(os.getenv("API_PORT", os.getenv("PORT", "3001")))
-DB_FILE = resolve_writable_path(os.getenv("AUTH_DB_PATH", str(Path(__file__).with_name("auth.db"))), "telegram-bot")
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+DB_FILE = (
+    resolve_writable_path(os.getenv("AUTH_DB_PATH", str(Path(__file__).with_name("auth.db"))), "telegram-bot")
+    if not is_postgres_url(DATABASE_URL)
+    else Path(os.getenv("AUTH_DB_PATH", str(Path(__file__).with_name("auth.db"))))
+)
 LEGACY_JSON_FILE = resolve_writable_path(
     os.getenv("LEGACY_JSON_PATH", str(Path(__file__).with_name("tokens_db.json"))),
     "telegram-bot",
@@ -144,13 +151,19 @@ def is_subscription_expired(expires_at: str | None) -> bool:
     return expires_at_dt <= datetime.now(timezone.utc)
 
 
-def get_connection() -> sqlite3.Connection:
-    connection = sqlite3.connect(DB_FILE)
-    connection.row_factory = sqlite3.Row
-    return connection
+def get_connection() -> ConnectionProxy:
+    return connect_database(DATABASE_URL, DB_FILE)
 
 
-def ensure_column(connection: sqlite3.Connection, table_name: str, column_name: str, definition: str) -> None:
+def is_postgres_connection(connection: ConnectionProxy) -> bool:
+    return getattr(connection, "backend", "sqlite") == "postgres"
+
+
+def ensure_column(connection: ConnectionProxy, table_name: str, column_name: str, definition: str) -> None:
+    if is_postgres_connection(connection):
+        connection.execute(f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {column_name} {definition}")
+        return
+
     columns = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
     existing_columns = {column[1] for column in columns}
     if column_name not in existing_columns:
@@ -158,95 +171,278 @@ def ensure_column(connection: sqlite3.Connection, table_name: str, column_name: 
 
 
 def init_db() -> None:
-    DB_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if not is_postgres_url(DATABASE_URL):
+        DB_FILE.parent.mkdir(parents=True, exist_ok=True)
+
     with get_connection() as connection:
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS admin_users (
-                user_id INTEGER PRIMARY KEY,
-                username TEXT,
-                added_by INTEGER,
-                created_at TEXT NOT NULL
+        if is_postgres_connection(connection):
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS admin_users (
+                    user_id BIGINT PRIMARY KEY,
+                    username TEXT,
+                    added_by BIGINT,
+                    created_at TEXT NOT NULL
+                )
+                """
             )
-            """
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS auth_tokens (
-                token TEXT PRIMARY KEY,
-                chat_id INTEGER NOT NULL UNIQUE,
-                username TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                activated_device_id TEXT UNIQUE,
-                activated_at TEXT,
-                subscription_plan TEXT NOT NULL DEFAULT 'inactive',
-                subscription_status TEXT NOT NULL DEFAULT 'inactive',
-                subscription_expires_at TEXT,
-                revoked_at TEXT,
-                last_seen_at TEXT
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS auth_tokens (
+                    token TEXT PRIMARY KEY,
+                    chat_id BIGINT NOT NULL UNIQUE,
+                    username TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    activated_device_id TEXT UNIQUE,
+                    activated_at TEXT,
+                    subscription_plan TEXT NOT NULL DEFAULT 'inactive',
+                    subscription_status TEXT NOT NULL DEFAULT 'inactive',
+                    subscription_expires_at TEXT,
+                    revoked_at TEXT,
+                    last_seen_at TEXT
+                )
+                """
             )
-            """
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS star_payments (
-                telegram_payment_charge_id TEXT PRIMARY KEY,
-                provider_payment_charge_id TEXT,
-                chat_id INTEGER NOT NULL,
-                token TEXT NOT NULL,
-                plan_id TEXT NOT NULL,
-                invoice_payload TEXT NOT NULL,
-                currency TEXT NOT NULL,
-                total_amount INTEGER NOT NULL,
-                days INTEGER NOT NULL,
-                processed_at TEXT NOT NULL
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS star_payments (
+                    telegram_payment_charge_id TEXT PRIMARY KEY,
+                    provider_payment_charge_id TEXT,
+                    chat_id BIGINT NOT NULL,
+                    token TEXT NOT NULL,
+                    plan_id TEXT NOT NULL,
+                    invoice_payload TEXT NOT NULL,
+                    currency TEXT NOT NULL,
+                    total_amount INTEGER NOT NULL,
+                    days INTEGER NOT NULL,
+                    processed_at TEXT NOT NULL
+                )
+                """
             )
-            """
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS license_keys (
-                key TEXT PRIMARY KEY,
-                plan_id TEXT NOT NULL,
-                subscription_plan TEXT NOT NULL,
-                days INTEGER NOT NULL DEFAULT 0,
-                permanent INTEGER NOT NULL DEFAULT 0,
-                status TEXT NOT NULL DEFAULT 'unused',
-                created_at TEXT NOT NULL,
-                created_by INTEGER,
-                redeemed_at TEXT,
-                redeemed_by_chat_id INTEGER,
-                redeemed_token TEXT
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS license_keys (
+                    key TEXT PRIMARY KEY,
+                    plan_id TEXT NOT NULL,
+                    subscription_plan TEXT NOT NULL,
+                    days INTEGER NOT NULL DEFAULT 0,
+                    permanent INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL DEFAULT 'unused',
+                    created_at TEXT NOT NULL,
+                    created_by BIGINT,
+                    redeemed_at TEXT,
+                    redeemed_by_chat_id BIGINT,
+                    redeemed_token TEXT
+                )
+                """
             )
-            """
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS promo_codes (
-                code TEXT PRIMARY KEY,
-                discount_percent INTEGER NOT NULL,
-                target_plan_id TEXT NOT NULL DEFAULT 'all',
-                max_uses INTEGER NOT NULL DEFAULT 0,
-                used_count INTEGER NOT NULL DEFAULT 0,
-                active INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL,
-                created_by INTEGER,
-                expires_at TEXT
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS promo_codes (
+                    code TEXT PRIMARY KEY,
+                    discount_percent INTEGER NOT NULL,
+                    target_plan_id TEXT NOT NULL DEFAULT 'all',
+                    max_uses INTEGER NOT NULL DEFAULT 0,
+                    used_count INTEGER NOT NULL DEFAULT 0,
+                    active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    created_by BIGINT,
+                    expires_at TEXT
+                )
+                """
             )
-            """
-        )
-        connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS chat_promos (
-                chat_id INTEGER PRIMARY KEY,
-                promo_code TEXT NOT NULL,
-                applied_at TEXT NOT NULL
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS chat_promos (
+                    chat_id BIGINT PRIMARY KEY,
+                    promo_code TEXT NOT NULL,
+                    applied_at TEXT NOT NULL
+                )
+                """
             )
-            """
-        )
+        else:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS admin_users (
+                    user_id INTEGER PRIMARY KEY,
+                    username TEXT,
+                    added_by INTEGER,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS auth_tokens (
+                    token TEXT PRIMARY KEY,
+                    chat_id INTEGER NOT NULL UNIQUE,
+                    username TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    activated_device_id TEXT UNIQUE,
+                    activated_at TEXT,
+                    subscription_plan TEXT NOT NULL DEFAULT 'inactive',
+                    subscription_status TEXT NOT NULL DEFAULT 'inactive',
+                    subscription_expires_at TEXT,
+                    revoked_at TEXT,
+                    last_seen_at TEXT
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS star_payments (
+                    telegram_payment_charge_id TEXT PRIMARY KEY,
+                    provider_payment_charge_id TEXT,
+                    chat_id INTEGER NOT NULL,
+                    token TEXT NOT NULL,
+                    plan_id TEXT NOT NULL,
+                    invoice_payload TEXT NOT NULL,
+                    currency TEXT NOT NULL,
+                    total_amount INTEGER NOT NULL,
+                    days INTEGER NOT NULL,
+                    processed_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS license_keys (
+                    key TEXT PRIMARY KEY,
+                    plan_id TEXT NOT NULL,
+                    subscription_plan TEXT NOT NULL,
+                    days INTEGER NOT NULL DEFAULT 0,
+                    permanent INTEGER NOT NULL DEFAULT 0,
+                    status TEXT NOT NULL DEFAULT 'unused',
+                    created_at TEXT NOT NULL,
+                    created_by INTEGER,
+                    redeemed_at TEXT,
+                    redeemed_by_chat_id INTEGER,
+                    redeemed_token TEXT
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS promo_codes (
+                    code TEXT PRIMARY KEY,
+                    discount_percent INTEGER NOT NULL,
+                    target_plan_id TEXT NOT NULL DEFAULT 'all',
+                    max_uses INTEGER NOT NULL DEFAULT 0,
+                    used_count INTEGER NOT NULL DEFAULT 0,
+                    active INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    created_by INTEGER,
+                    expires_at TEXT
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS chat_promos (
+                    chat_id INTEGER PRIMARY KEY,
+                    promo_code TEXT NOT NULL,
+                    applied_at TEXT NOT NULL
+                )
+                """
+            )
         ensure_column(connection, "star_payments", "plan_id", "TEXT NOT NULL DEFAULT ''")
         ensure_column(connection, "star_payments", "promo_code", "TEXT")
         connection.commit()
+
+
+def migrate_sqlite_db_to_postgres() -> None:
+    if not is_postgres_url(DATABASE_URL) or not DB_FILE.exists():
+        return
+
+    source = sqlite3.connect(DB_FILE)
+    source.row_factory = sqlite3.Row
+
+    table_columns = {
+        "admin_users": ["user_id", "username", "added_by", "created_at"],
+        "auth_tokens": [
+            "token",
+            "chat_id",
+            "username",
+            "created_at",
+            "activated_device_id",
+            "activated_at",
+            "subscription_plan",
+            "subscription_status",
+            "subscription_expires_at",
+            "revoked_at",
+            "last_seen_at",
+        ],
+        "star_payments": [
+            "telegram_payment_charge_id",
+            "provider_payment_charge_id",
+            "chat_id",
+            "token",
+            "plan_id",
+            "promo_code",
+            "invoice_payload",
+            "currency",
+            "total_amount",
+            "days",
+            "processed_at",
+        ],
+        "license_keys": [
+            "key",
+            "plan_id",
+            "subscription_plan",
+            "days",
+            "permanent",
+            "status",
+            "created_at",
+            "created_by",
+            "redeemed_at",
+            "redeemed_by_chat_id",
+            "redeemed_token",
+        ],
+        "promo_codes": [
+            "code",
+            "discount_percent",
+            "target_plan_id",
+            "max_uses",
+            "used_count",
+            "active",
+            "created_at",
+            "created_by",
+            "expires_at",
+        ],
+        "chat_promos": ["chat_id", "promo_code", "applied_at"],
+    }
+
+    def source_values(table_name: str, columns: list[str]) -> list[tuple]:
+        available_rows = source.execute(f"PRAGMA table_info({table_name})").fetchall()
+        available_columns = {row[1] for row in available_rows}
+        selected_columns = [column for column in columns if column in available_columns]
+        if not selected_columns:
+            return []
+
+        rows = source.execute(f"SELECT {', '.join(selected_columns)} FROM {table_name}").fetchall()
+        hydrated_rows: list[tuple] = []
+        for row in rows:
+            hydrated_rows.append(tuple(row[column] if column in available_columns else None for column in columns))
+        return hydrated_rows
+
+    try:
+        with get_connection() as target:
+            existing_tokens = int(target.execute("SELECT COUNT(*) FROM auth_tokens").fetchone()[0])
+            if existing_tokens > 0:
+                return
+
+            for table_name, columns in table_columns.items():
+                column_list = ", ".join(columns)
+                placeholders = ", ".join("?" for _ in columns)
+                for values in source_values(table_name, columns):
+                    target.execute(
+                        f"INSERT INTO {table_name} ({column_list}) VALUES ({placeholders}) ON CONFLICT DO NOTHING",
+                        values,
+                    )
+            target.commit()
+            print("[limitless-bot] Migrated SQLite auth data into PostgreSQL.", flush=True)
+    finally:
+        source.close()
 
 
 def migrate_legacy_json() -> None:
@@ -2125,6 +2321,7 @@ def run_flask():
 
 if __name__ == "__main__":
     init_db()
+    migrate_sqlite_db_to_postgres()
     migrate_legacy_json()
     ensure_primary_admin_tokens()
 

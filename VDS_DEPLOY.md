@@ -4,6 +4,7 @@
 
 - `frontend`: React/Vite site, served by Caddy with HTTPS
 - `backend`: Rust API on the internal Docker network
+- `postgres`: shared PostgreSQL database for both Telegram bots
 - `telegram-bot`: main Telegram bot and token API
 - `support-bot`: support Telegram bot
 
@@ -64,6 +65,10 @@ Fill in at least these values:
 ```env
 SITE_HOST=limitless.pp.ua
 
+POSTGRES_DB=limitless
+POSTGRES_USER=limitless
+POSTGRES_PASSWORD=change-this-postgres-password
+
 BOT_INTERNAL_API_KEY=put-a-long-random-string-here
 
 ADMIN_USERNAME=admin
@@ -79,6 +84,8 @@ SUPPORT_BOT_TOKEN=your-support-bot-token
 SUPPORT_BOT_OWNER_ID=1839845039
 SUPPORT_RETRY_INTERVAL_SECONDS=15
 ```
+
+The VDS stack now starts PostgreSQL automatically. If you already have old SQLite data inside the Docker volumes, the bots migrate it into PostgreSQL on first start.
 
 ## 6. Start the whole project
 
@@ -131,8 +138,9 @@ docker compose logs -f telegram-bot
   Stop the old instance before starting the VDS version.
 - Your bot tokens were shown earlier in screenshots and code. Rotate both bot tokens in `@BotFather` before production use.
 - The Rust backend stores prompt and account data in the `backend_data` Docker volume.
-- The main bot stores tokens, keys, promos and subscriptions in the `telegram_bot_data` Docker volume.
-- The support bot stores its queue and admins in the `support_bot_data` Docker volume.
+- The Telegram bots now use PostgreSQL for active data.
+- The old `telegram_bot_data` and `support_bot_data` volumes are kept mounted only for SQLite fallback and one-time migration.
+- PostgreSQL data lives in the `postgres_data` Docker volume.
 
 ## First quick smoke test
 
