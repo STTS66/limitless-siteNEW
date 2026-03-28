@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Пользовательское соглашение - Limitless</title>
+    <meta
+      name="description"
+      content="Пользовательское соглашение Limitless и ограничение ответственности сервиса."
+    />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0a0a12;
+        --panel: rgba(16, 16, 28, 0.88);
+        --panel-border: rgba(139, 92, 246, 0.18);
+        --text: #f4f1ff;
+        --muted: #b7b1d3;
+        --accent: #a78bfa;
+        --danger-bg: rgba(255, 94, 94, 0.08);
+        --danger-border: rgba(255, 94, 94, 0.28);
+        --danger-text: #ffd2d2;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Segoe UI", Arial, sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top left, rgba(139, 92, 246, 0.2), transparent 26%),
+          radial-gradient(circle at bottom right, rgba(91, 33, 182, 0.18), transparent 30%),
+          var(--bg);
+      }
+
+      .page {
+        width: min(980px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 28px 0 48px;
+      }
+
+      .back {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 18px;
+        padding: 12px 18px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--text);
+        text-decoration: none;
+      }
+
+      .card {
+        padding: 28px;
+        border-radius: 28px;
+        border: 1px solid var(--panel-border);
+        background: var(--panel);
+        backdrop-filter: blur(22px);
+        box-shadow: 0 24px 90px rgba(0, 0, 0, 0.32);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+
+      .brand img {
+        width: 42px;
+        height: 42px;
+      }
+
+      .brand span {
+        font-size: 14px;
+        font-weight: 900;
+        letter-spacing: 0.35em;
+        color: var(--accent);
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: clamp(32px, 5vw, 46px);
+        line-height: 1.04;
+      }
+
+      .intro {
+        margin: 0 0 18px;
+        color: var(--muted);
+        font-size: 17px;
+        line-height: 1.7;
+      }
+
+      .warning {
+        margin: 0 0 24px;
+        padding: 18px 20px;
+        border-radius: 20px;
+        border: 1px solid var(--danger-border);
+        background: var(--danger-bg);
+        color: var(--danger-text);
+        font-size: 16px;
+        line-height: 1.75;
+      }
+
+      .section {
+        padding-top: 20px;
+        margin-top: 20px;
+        border-top: 1px solid rgba(255, 255, 255, 0.08);
+      }
+
+      .section:first-of-type {
+        margin-top: 0;
+        padding-top: 0;
+        border-top: none;
+      }
+
+      h2 {
+        margin: 0 0 10px;
+        font-size: 20px;
+      }
+
+      p {
+        margin: 0 0 12px;
+        color: var(--muted);
+        font-size: 16px;
+        line-height: 1.75;
+      }
+
+      strong {
+        color: var(--text);
+      }
+
+      @media (max-width: 640px) {
+        .page {
+          width: min(100% - 20px, 100%);
+          padding: 18px 0 28px;
+        }
+
+        .card {
+          padding: 22px 18px;
+          border-radius: 22px;
+        }
+
+        .brand span {
+          letter-spacing: 0.22em;
+          font-size: 13px;
+        }
+
+        .intro,
+        p,
+        .warning {
+          font-size: 15px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="page">
+      <a class="back" href="/">На главную</a>
+
+      <article class="card">
+        <div class="brand">
+          <img src="/limitless-icon.svg" alt="Limitless" />
+          <span>LIMITLESS</span>
+        </div>
+
+        <h1>Пользовательское соглашение</h1>
+        <p class="intro">
+          Используя сайт, Telegram-бота, токены доступа и любые связанные функции Limitless, пользователь подтверждает,
+          что принимает условия настоящего соглашения.
+        </p>
+
+        <div class="warning">
+          <strong>Важно:</strong> сервис, ответы ИИ, токены, история чатов, настройки аккаунта и любые связанные материалы
+          предоставляются без гарантий. Администрация проекта <strong>не несет ответственности</strong> за прямые или косвенные
+          убытки, ошибки ответов, потерю данных, недоступность сервиса, блокировки, финансовые потери, последствия использования
+          ответов ИИ и любые иные риски, возникающие при использовании Limitless.
+        </div>
+
+        <section class="section">
+          <h2>1. Общие положения</h2>
+          <p>
+            Limitless предоставляет доступ к интерфейсу взаимодействия с ИИ, токенизированному входу, истории чатов,
+            настройкам аккаунта и связанным возможностям сервиса.
+          </p>
+          <p>
+            Администрация проекта вправе менять функциональность сервиса, структуру доступа, тарифы и техническую реализацию
+            без отдельного персонального уведомления.
+          </p>
+        </section>
+
+        <section class="section">
+          <h2>2. Доступ по токену</h2>
+          <p>
+            Доступ предоставляется по токену или ключу активации, полученному через официальные каналы проекта. Пользователь
+            обязан хранить его в безопасности и не передавать третьим лицам.
+          </p>
+          <p>
+            При нарушении правил, подозрительной активности, попытках обхода ограничений или злоупотреблении системой доступ
+            может быть ограничен или прекращен.
+          </p>
+        </section>
+
+        <section class="section">
+          <h2>3. Подписка и продление</h2>
+          <p>
+            Платный доступ, продление подписки, lifetime-доступ, промокоды и ключи активации предоставляются на условиях,
+            действующих на момент покупки.
+          </p>
+          <p>
+            При продлении подписки на тот же токен ранее сохраненные данные аккаунта могут сохраняться, если они доступны в
+            системе и не были удалены по техническим, правовым или эксплуатационным причинам.
+          </p>
+        </section>
+
+        <section class="section">
+          <h2>4. Ограничение ответственности</h2>
+          <p>
+            Администрация проекта не гарантирует бесперебойную работу сайта, бота, API, токенов доступа, истории чатов,
+            хранения данных или стабильность ответов ИИ.
+          </p>
+          <p>
+            Пользователь самостоятельно оценивает достоверность и применимость ответов ИИ. Все решения, принятые на основе
+            ответов сервиса, пользователь принимает на свой риск.
+          </p>
+          <p>
+            Администрация проекта не несет ответственности за юридические, финансовые, медицинские, технические или иные
+            последствия использования сервиса, а также за действия третьих лиц, сбои инфраструктуры, утрату доступа или
+            временную недоступность проекта.
+          </p>
+        </section>
+
+        <section class="section">
+          <h2>5. Контакты</h2>
+          <p>По вопросам доступа и работы сервиса пользователь может обратиться в официальную Telegram-поддержку проекта.</p>
+          <p><strong>Канал поддержки:</strong> @LimitlessSupport_bot</p>
+        </section>
+      </article>
+    </main>
+  </body>
+  </html>
