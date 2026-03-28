@@ -7,9 +7,9 @@ export function resolveAuthError(error?: string): string {
     case 'TOKEN_NOT_FOUND':
       return 'Этот токен не найден. Получите актуальный код в Telegram-боте.';
     case 'DEVICE_ALREADY_BOUND':
-      return 'На этом устройстве уже активирован другой токен. Смена аккаунта отключена.';
+      return 'Вход с другого аккаунта на этом устройстве больше не блокируется. Обновите страницу и попробуйте снова.';
     case 'TOKEN_ALREADY_BOUND':
-      return 'Этот токен уже активирован на другом устройстве.';
+      return 'Этот токен уже привязан к другому IP. Используйте то же подключение, на котором токен был активирован впервые.';
     case 'DEVICE_ID_REQUIRED':
       return 'Не удалось определить это устройство для активации.';
     case 'INVALID_TOKEN_FORMAT':

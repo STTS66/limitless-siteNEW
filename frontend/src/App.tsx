@@ -20,8 +20,6 @@ import './styles/globals.css';
 
 function shouldKeepDeviceLocked(error?: string): boolean {
   switch (error) {
-    case 'DEVICE_ALREADY_BOUND':
-    case 'TOKEN_ALREADY_BOUND':
     case 'SUBSCRIPTION_EXPIRED':
     case 'SUBSCRIPTION_INACTIVE':
     case 'TOKEN_REVOKED':

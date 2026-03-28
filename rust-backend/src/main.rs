@@ -149,6 +149,8 @@ pub struct AccountSnapshot {
 pub struct ValidateRequest {
     pub token: String,
     pub device_id: String,
+    #[serde(default)]
+    pub client_ip: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -736,6 +738,35 @@ fn extract_device_id(request: &HttpRequest) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+fn extract_client_ip(request: &HttpRequest) -> Option<String> {
+    let forwarded = request
+        .headers()
+        .get("X-Forwarded-For")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+
+    if forwarded.is_some() {
+        return forwarded;
+    }
+
+    let real_ip = request
+        .headers()
+        .get("X-Real-Ip")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+
+    if real_ip.is_some() {
+        return real_ip;
+    }
+
+    request.peer_addr().map(|addr| addr.ip().to_string())
+}
+
 fn ensure_admin(request: &HttpRequest, data: &web::Data<AppState>) -> Result<(), HttpResponse> {
     let token = match extract_bearer_token(request) {
         Some(token) => token,
@@ -813,6 +844,7 @@ async fn validate_account_access(
         .json(&ValidateRequest {
             token,
             device_id,
+            client_ip: extract_client_ip(request),
         })
         .send()
         .await
@@ -947,9 +979,14 @@ async fn health_check() -> HttpResponse {
     })
 }
 
-async fn validate_token(body: web::Json<ValidateRequest>, data: web::Data<AppState>) -> HttpResponse {
+async fn validate_token(
+    request: HttpRequest,
+    body: web::Json<ValidateRequest>,
+    data: web::Data<AppState>,
+) -> HttpResponse {
     let token = body.token.trim();
     let device_id = body.device_id.trim();
+    let client_ip = extract_client_ip(&request).or_else(|| body.client_ip.clone());
 
     if device_id.is_empty() {
         return HttpResponse::Ok().json(ValidateResponse {
@@ -975,6 +1012,7 @@ async fn validate_token(body: web::Json<ValidateRequest>, data: web::Data<AppSta
         .json(&ValidateRequest {
             token: token.to_string(),
             device_id: device_id.to_string(),
+            client_ip,
         })
         .send()
         .await

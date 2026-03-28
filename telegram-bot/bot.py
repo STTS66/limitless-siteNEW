@@ -194,6 +194,7 @@ def init_db() -> None:
                     username TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     activated_device_id TEXT UNIQUE,
+                    activated_ip TEXT,
                     activated_at TEXT,
                     subscription_plan TEXT NOT NULL DEFAULT 'inactive',
                     subscription_status TEXT NOT NULL DEFAULT 'inactive',
@@ -279,6 +280,7 @@ def init_db() -> None:
                     username TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     activated_device_id TEXT UNIQUE,
+                    activated_ip TEXT,
                     activated_at TEXT,
                     subscription_plan TEXT NOT NULL DEFAULT 'inactive',
                     subscription_status TEXT NOT NULL DEFAULT 'inactive',
@@ -345,6 +347,7 @@ def init_db() -> None:
                 )
                 """
             )
+        ensure_column(connection, "auth_tokens", "activated_ip", "TEXT")
         ensure_column(connection, "star_payments", "plan_id", "TEXT NOT NULL DEFAULT ''")
         ensure_column(connection, "star_payments", "promo_code", "TEXT")
         connection.commit()
@@ -365,6 +368,7 @@ def migrate_sqlite_db_to_postgres() -> None:
             "username",
             "created_at",
             "activated_device_id",
+            "activated_ip",
             "activated_at",
             "subscription_plan",
             "subscription_status",
@@ -474,13 +478,14 @@ def migrate_legacy_json() -> None:
                     username,
                     created_at,
                     activated_device_id,
+                    activated_ip,
                     activated_at,
                     subscription_plan,
                     subscription_status,
                     subscription_expires_at,
                     revoked_at,
                     last_seen_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     token,
@@ -488,6 +493,7 @@ def migrate_legacy_json() -> None:
                     str(token_data.get("username", "User")),
                     str(token_data.get("createdAt", now_iso())),
                     token_data.get("activatedDeviceId"),
+                    token_data.get("activatedIp"),
                     token_data.get("activatedAt"),
                     str(token_data.get("subscriptionPlan", "inactive")),
                     str(token_data.get("subscriptionStatus", "inactive")),
@@ -998,7 +1004,7 @@ def format_subscription_status(token_data: dict) -> str:
 def build_token_summary(token_data: dict) -> str:
     activation_status = (
         f"Активирован: {token_data.get('activated_at', 'неизвестно')}"
-        if token_data.get("activated_device_id")
+        if token_data.get("activated_at") or token_data.get("activated_ip") or token_data.get("activated_device_id")
         else "Еще не активирован"
     )
     return (
@@ -1086,6 +1092,7 @@ def format_admin_user_record(token_data: dict) -> dict:
         "username": token_data.get("username") or "User",
         "createdAt": token_data.get("created_at"),
         "activatedDeviceId": token_data.get("activated_device_id"),
+        "activatedIp": token_data.get("activated_ip"),
         "activatedAt": token_data.get("activated_at"),
         "subscriptionPlan": token_data.get("subscription_plan"),
         "subscriptionStatus": token_data.get("subscription_status"),
@@ -1093,7 +1100,7 @@ def format_admin_user_record(token_data: dict) -> dict:
         "revokedAt": token_data.get("revoked_at"),
         "lastSeenAt": token_data.get("last_seen_at"),
         "isBanned": bool(token_data.get("revoked_at")),
-        "isBound": bool(token_data.get("activated_device_id")),
+        "isBound": bool(token_data.get("activated_at") or token_data.get("activated_ip") or token_data.get("activated_device_id")),
     }
 
 
@@ -1133,7 +1140,7 @@ def get_admin_user_summary(connection: sqlite3.Connection) -> dict:
     )
     bound_devices = int(
         connection.execute(
-            "SELECT COUNT(*) FROM auth_tokens WHERE activated_device_id IS NOT NULL"
+            "SELECT COUNT(*) FROM auth_tokens WHERE activated_ip IS NOT NULL OR activated_device_id IS NOT NULL"
         ).fetchone()[0]
     )
     return {
@@ -1431,9 +1438,10 @@ def build_admin_list_message(connection: sqlite3.Connection) -> str:
     return "\n".join(lines)
 
 
-def activate_token(token: str, device_id: str) -> dict:
+def activate_token(token: str, device_id: str, client_ip: str | None = None) -> dict:
     token = token.strip()
     device_id = device_id.strip()
+    client_ip = (client_ip or "").strip()
 
     if not token or not device_id:
         return {"valid": False, "error": "INVALID_REQUEST"}
@@ -1481,22 +1489,27 @@ def activate_token(token: str, device_id: str) -> dict:
             if is_subscription_expired(token_data.get("subscription_expires_at")):
                 return {"valid": False, "error": "SUBSCRIPTION_EXPIRED", "token": None}
 
-            bound_token = get_token_by_device_id(connection, device_id)
-            if bound_token and bound_token["token"] != token:
-                return {"valid": False, "error": "DEVICE_ALREADY_BOUND", "token": None}
-
-            activated_device_id = token_data.get("activated_device_id")
-            if activated_device_id and activated_device_id != device_id:
+            activated_ip = (token_data.get("activated_ip") or "").strip()
+            if activated_ip and client_ip and activated_ip != client_ip:
                 return {"valid": False, "error": "TOKEN_ALREADY_BOUND", "token": None}
 
-            if not activated_device_id:
+            if not token_data.get("activated_at"):
                 connection.execute(
                     """
                     UPDATE auth_tokens
-                    SET activated_device_id = ?, activated_at = ?, last_seen_at = ?
+                    SET activated_ip = ?, activated_at = ?, last_seen_at = ?
                     WHERE token = ?
                     """,
-                    (device_id, now_iso(), now_iso(), token),
+                    (client_ip or None, now_iso(), now_iso(), token),
+                )
+            elif not activated_ip and client_ip:
+                connection.execute(
+                    """
+                    UPDATE auth_tokens
+                    SET activated_ip = ?, last_seen_at = ?
+                    WHERE token = ?
+                    """,
+                    (client_ip, now_iso(), token),
                 )
             else:
                 connection.execute(
@@ -2238,7 +2251,8 @@ def validate_token_post():
 
     token = str(data.get("token", "")).strip()
     device_id = str(data.get("deviceId", "")).strip()
-    return jsonify(activate_token(token, device_id))
+    client_ip = data.get("clientIp")
+    return jsonify(activate_token(token, device_id, client_ip))
 
 
 @app.route("/api/admin/users", methods=["GET"])
