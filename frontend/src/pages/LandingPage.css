@@ -148,6 +148,52 @@
   box-shadow: 0 8px 20px rgba(139, 92, 246, 0.2);
 }
 
+.landing-profile-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  max-width: min(280px, 100%);
+  padding: 8px 12px 8px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(139, 92, 246, 0.22);
+  background: rgba(139, 92, 246, 0.08);
+  box-shadow: 0 12px 28px rgba(76, 29, 149, 0.14);
+}
+
+.landing-profile-avatar {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+}
+
+.landing-profile-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.landing-profile-name {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.landing-profile-meta {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .landing-content {
   position: relative;
   z-index: 1;
@@ -862,10 +908,15 @@
   }
 
   .landing-nav-link,
-  .landing-login-btn {
+  .landing-login-btn,
+  .landing-profile-chip {
     width: 100%;
     min-height: 44px;
     text-align: center;
+  }
+
+  .landing-profile-chip {
+    justify-content: flex-start;
   }
 
   .landing-content {
@@ -1003,10 +1054,29 @@
   }
 
   .landing-nav-link,
-  .landing-login-btn {
+  .landing-login-btn,
+  .landing-profile-chip {
     min-height: 42px;
     padding: 9px 8px;
     font-size: 11.5px;
+  }
+
+  .landing-profile-chip {
+    gap: 10px;
+    padding: 8px 10px;
+  }
+
+  .landing-profile-avatar {
+    width: 36px;
+    height: 36px;
+  }
+
+  .landing-profile-name {
+    font-size: 12px;
+  }
+
+  .landing-profile-meta {
+    font-size: 9px;
   }
 
   .landing-content {
@@ -1166,10 +1236,21 @@
   }
 
   .landing-nav-link,
-  .landing-login-btn {
+  .landing-login-btn,
+  .landing-profile-chip {
     min-height: 40px;
     padding: 8px 7px;
     font-size: 11px;
+  }
+
+  .landing-profile-chip {
+    gap: 8px;
+    padding: 7px 9px;
+  }
+
+  .landing-profile-avatar {
+    width: 34px;
+    height: 34px;
   }
 
   .landing-content {

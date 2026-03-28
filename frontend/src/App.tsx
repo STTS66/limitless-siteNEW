@@ -11,6 +11,7 @@ import {
   clearAuthToken,
   loadAuthToken,
   loadOrCreateDeviceId,
+  loadProfile,
   migrateAccountStorage,
   saveAuthToken,
 } from './utils/storage';
@@ -217,8 +218,9 @@ const App: React.FC = () => {
       <LandingPage
         onOpenAuth={handleOpenFromLanding}
         onOpenAdmin={handleOpenAdminFromLanding}
-        navActionLabel="В чат"
-        primaryActionLabel="Вернуться в чат"
+        primaryActionLabel="Войти в чат"
+        isAuthenticated
+        profile={loadProfile()}
       />,
     );
   }

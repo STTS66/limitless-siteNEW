@@ -298,7 +298,6 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onGoHome }) => {
 
       <Sidebar
         isOpen={sidebarOpen}
-        profile={profile}
         chats={chats}
         currentChatId={currentChatId}
         onClose={() => setSidebarOpen(false)}

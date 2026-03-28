@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { ProfileAvatar } from '../components/ProfileAvatar';
+import { AccountProfile } from '../types';
 import { getApiUrl } from '../utils/api';
 import { saveAdminAuthToken } from '../utils/storage';
 import './LandingPage.css';
@@ -8,6 +10,8 @@ interface LandingPageProps {
   onOpenAdmin?: () => void;
   navActionLabel?: string;
   primaryActionLabel?: string;
+  isAuthenticated?: boolean;
+  profile?: AccountProfile | null;
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({
@@ -15,6 +19,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   onOpenAdmin,
   navActionLabel = 'Войти',
   primaryActionLabel = 'Войти по токену',
+  isAuthenticated = false,
+  profile = null,
 }) => {
   const supportBotUrl = 'https://t.me/LimitlessSupport_bot';
   const agreementUrl = '/terms';
@@ -119,9 +125,25 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             </button>
           </div>
 
-          <button type="button" className="landing-login-btn" onClick={onOpenAuth}>
-            {navActionLabel}
-          </button>
+          {isAuthenticated && profile ? (
+            <div className="landing-profile-chip" aria-label="Профиль пользователя">
+              <ProfileAvatar
+                className="landing-profile-avatar"
+                nickname={profile.nickname}
+                avatarDataUrl={profile.avatarDataUrl}
+                avatarHue={profile.avatarHue}
+                fallback="silhouette"
+              />
+              <div className="landing-profile-copy">
+                <span className="landing-profile-name">{profile.nickname}</span>
+                <span className="landing-profile-meta">{profile.profileId}</span>
+              </div>
+            </div>
+          ) : (
+            <button type="button" className="landing-login-btn" onClick={onOpenAuth}>
+              {navActionLabel}
+            </button>
+          )}
         </nav>
       </div>
 

@@ -29,6 +29,17 @@
   display: block;
 }
 
+.profile-avatar-silhouette {
+  width: 58%;
+  height: 58%;
+  position: relative;
+  z-index: 1;
+  stroke: currentColor;
+  stroke-width: 1.85;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .profile-avatar-initials {
   position: relative;
   z-index: 1;
