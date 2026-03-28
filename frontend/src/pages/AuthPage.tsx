@@ -6,6 +6,7 @@ import './AuthPage.css';
 
 interface AuthPageProps {
   onAuth: (token: string) => void;
+  onAdminAuth: (token: string) => void;
   locked?: boolean;
   lockedMessage?: string;
   onRetryLockedToken?: () => void;
@@ -14,6 +15,7 @@ interface AuthPageProps {
 
 export const AuthPage: React.FC<AuthPageProps> = ({
   onAuth,
+  onAdminAuth,
   locked = false,
   lockedMessage,
   onRetryLockedToken,
@@ -23,6 +25,8 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
+
+  const isAdminAccessToken = (value: string) => /^ADM-[A-Z0-9-]{8,}$/i.test(value.trim());
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,13 +51,33 @@ export const AuthPage: React.FC<AuthPageProps> = ({
     setIsLoading(true);
 
     try {
+      const trimmedToken = token.trim();
+
+      if (isAdminAccessToken(trimmedToken)) {
+        const adminResponse = await fetchApi('/api/admin/token-login', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ token: trimmedToken }),
+        });
+
+        const adminData = await adminResponse.json().catch(() => ({}));
+        if (!adminResponse.ok || !adminData?.token) {
+          throw new Error('Неверный админ-токен');
+        }
+
+        onAdminAuth(adminData.token);
+        return;
+      }
+
       const deviceId = loadOrCreateDeviceId();
       const response = await fetchApi('/api/validate', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ token: token.trim(), deviceId }),
+        body: JSON.stringify({ token: trimmedToken, deviceId }),
       });
 
       if (!response.ok) {
@@ -65,7 +89,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
         throw new Error(resolveAuthError(data.error));
       }
 
-      onAuth(data.token || token.trim());
+      onAuth(data.token || trimmedToken);
     } catch (err: any) {
       if (
         err?.name === 'AbortError' ||

@@ -13,6 +13,7 @@ import {
   loadAuthToken,
   loadOrCreateDeviceId,
   loadProfile,
+  saveAdminAuthToken,
   migrateAccountStorage,
   saveAuthToken,
 } from './utils/storage';
@@ -153,6 +154,12 @@ const App: React.FC = () => {
     setIsAuthenticated(true);
   };
 
+  const handleAdminAuth = (token: string) => {
+    saveAdminAuthToken(token);
+    setShowAuthPage(false);
+    navigate('/admin');
+  };
+
   const handleGoHome = () => {
     setShowLandingWhileAuthenticated(true);
   };
@@ -250,6 +257,7 @@ const App: React.FC = () => {
     return renderScene(
       <AuthPage
         onAuth={handleAuth}
+        onAdminAuth={handleAdminAuth}
         locked={isBoundToToken}
         lockedMessage={authError}
         onRetryLockedToken={isBoundToToken ? () => window.location.reload() : undefined}

@@ -12,6 +12,7 @@ use uuid::Uuid;
 mod auth;
 
 const DEFAULT_PROMPT_NAME: &str = "Limitless 1.5";
+const DEFAULT_ADMIN_ACCESS_TOKEN: &str = "ADM-LMT-ROOT-7X91-FB28";
 const PROFILE_ADJECTIVES: [&str; 12] = [
     "Neon",
     "Ghost",
@@ -52,6 +53,7 @@ pub struct AppState {
     pub admin_username: String,
     pub admin_password: String,
     pub admin_terminal_password: String,
+    pub admin_access_token: String,
 }
 
 #[derive(Clone)]
@@ -159,6 +161,12 @@ pub struct ValidateResponse {
 pub struct AdminLoginRequest {
     pub username: String,
     pub password: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminTokenLoginRequest {
+    pub token: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -858,6 +866,10 @@ async fn admin_login(body: web::Json<AdminLoginRequest>, data: web::Data<AppStat
         });
     }
 
+    create_admin_session(&data)
+}
+
+fn create_admin_session(data: &web::Data<AppState>) -> HttpResponse {
     let token = Uuid::new_v4().to_string();
     let session = AdminSession {
         username: data.admin_username.clone(),
@@ -882,6 +894,23 @@ async fn admin_login(body: web::Json<AdminLoginRequest>, data: web::Data<AppStat
         token: Some(token),
         error: None,
     })
+}
+
+async fn admin_token_login(
+    body: web::Json<AdminTokenLoginRequest>,
+    data: web::Data<AppState>,
+) -> HttpResponse {
+    let admin_token = body.token.trim();
+
+    if admin_token.is_empty() || admin_token != data.admin_access_token {
+        return HttpResponse::Unauthorized().json(AdminLoginResponse {
+            success: false,
+            token: None,
+            error: Some("INVALID_ADMIN_TOKEN".to_string()),
+        });
+    }
+
+    create_admin_session(&data)
 }
 
 async fn admin_get_prompt(request: HttpRequest, data: web::Data<AppState>) -> HttpResponse {
@@ -1098,6 +1127,8 @@ async fn main() -> std::io::Result<()> {
     let admin_password = std::env::var("ADMIN_PASSWORD").unwrap_or_else(|_| "limitless-admin-2026".to_string());
     let admin_terminal_password =
         std::env::var("ADMIN_TERMINAL_PASSWORD").unwrap_or_else(|_| "L1M1tLecc".to_string());
+    let admin_access_token =
+        std::env::var("ADMIN_ACCESS_TOKEN").unwrap_or_else(|_| DEFAULT_ADMIN_ACCESS_TOKEN.to_string());
     let prompt_config_path =
         std::env::var("PROMPT_CONFIG_PATH").unwrap_or_else(|_| "./data/prompt-config.json".to_string());
     let account_store_path = std::env::var("ACCOUNT_STORE_PATH").unwrap_or_else(|_| {
@@ -1120,6 +1151,7 @@ async fn main() -> std::io::Result<()> {
         admin_username,
         admin_password,
         admin_terminal_password,
+        admin_access_token,
     });
 
     println!("Limitless Backend started on port {}", port);
@@ -1140,6 +1172,7 @@ async fn main() -> std::io::Result<()> {
             .route("/api/account", web::get().to(get_account_snapshot))
             .route("/api/account", web::put().to(save_account_snapshot))
             .route("/api/admin/login", web::post().to(admin_login))
+            .route("/api/admin/token-login", web::post().to(admin_token_login))
             .route("/api/admin/logout", web::post().to(admin_logout))
             .route("/api/admin/prompt", web::get().to(admin_get_prompt))
             .route("/api/admin/prompt", web::put().to(admin_update_prompt))
