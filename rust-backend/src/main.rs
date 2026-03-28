@@ -327,22 +327,23 @@ impl PromptStore {
     }
 
     fn load_from_postgres(&self, database_url: &str) -> Result<Option<PromptConfig>, String> {
-        let mut client = connect_backend_postgres(database_url)?;
-        let row = client
-            .query_opt(
-                "SELECT payload FROM prompt_configs WHERE config_key = $1 LIMIT 1",
-                &[&DEFAULT_PROMPT_CONFIG_KEY],
-            )
-            .map_err(|err| err.to_string())?;
+        with_backend_postgres(database_url, move |client| {
+            let row = client
+                .query_opt(
+                    "SELECT payload FROM prompt_configs WHERE config_key = $1 LIMIT 1",
+                    &[&DEFAULT_PROMPT_CONFIG_KEY],
+                )
+                .map_err(|err| err.to_string())?;
 
-        match row {
-            Some(row) => {
-                let payload: String = row.get(0);
-                let config = serde_json::from_str::<PromptConfig>(&payload).map_err(|err| err.to_string())?;
-                Ok(Some(config))
+            match row {
+                Some(row) => {
+                    let payload: String = row.get(0);
+                    let config = serde_json::from_str::<PromptConfig>(&payload).map_err(|err| err.to_string())?;
+                    Ok(Some(config))
+                }
+                None => Ok(None),
             }
-            None => Ok(None),
-        }
+        })
     }
 
     fn save_to_postgres(
@@ -351,20 +352,22 @@ impl PromptStore {
         payload: &str,
         updated_at: Option<String>,
     ) -> Result<(), String> {
-        let mut client = connect_backend_postgres(database_url)?;
-        client
-            .execute(
-                "
-                INSERT INTO prompt_configs (config_key, payload, updated_at)
-                VALUES ($1, $2, $3)
-                ON CONFLICT(config_key) DO UPDATE SET
-                    payload = EXCLUDED.payload,
-                    updated_at = EXCLUDED.updated_at
-                ",
-                &[&DEFAULT_PROMPT_CONFIG_KEY, &payload, &updated_at],
-            )
-            .map_err(|err| err.to_string())?;
-        Ok(())
+        let payload = payload.to_string();
+        with_backend_postgres(database_url, move |client| {
+            client
+                .execute(
+                    "
+                    INSERT INTO prompt_configs (config_key, payload, updated_at)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT(config_key) DO UPDATE SET
+                        payload = EXCLUDED.payload,
+                        updated_at = EXCLUDED.updated_at
+                    ",
+                    &[&DEFAULT_PROMPT_CONFIG_KEY, &payload, &updated_at],
+                )
+                .map_err(|err| err.to_string())?;
+            Ok(())
+        })
     }
 }
 
@@ -457,22 +460,24 @@ impl AccountStore {
     }
 
     fn load_from_postgres(&self, database_url: &str, token: &str) -> Result<Option<AccountSnapshot>, String> {
-        let mut client = connect_backend_postgres(database_url)?;
-        let row = client
-            .query_opt(
-                "SELECT payload FROM account_snapshots WHERE token = $1 LIMIT 1",
-                &[&token],
-            )
-            .map_err(|err| err.to_string())?;
+        let token = token.to_string();
+        with_backend_postgres(database_url, move |client| {
+            let row = client
+                .query_opt(
+                    "SELECT payload FROM account_snapshots WHERE token = $1 LIMIT 1",
+                    &[&token],
+                )
+                .map_err(|err| err.to_string())?;
 
-        match row {
-            Some(row) => {
-                let payload: String = row.get(0);
-                let snapshot = serde_json::from_str::<AccountSnapshot>(&payload).map_err(|err| err.to_string())?;
-                Ok(Some(snapshot))
+            match row {
+                Some(row) => {
+                    let payload: String = row.get(0);
+                    let snapshot = serde_json::from_str::<AccountSnapshot>(&payload).map_err(|err| err.to_string())?;
+                    Ok(Some(snapshot))
+                }
+                None => Ok(None),
             }
-            None => Ok(None),
-        }
+        })
     }
 
     fn save_to_postgres(
@@ -482,20 +487,23 @@ impl AccountStore {
         payload: &str,
         updated_at: Option<String>,
     ) -> Result<(), String> {
-        let mut client = connect_backend_postgres(database_url)?;
-        client
-            .execute(
-                "
-                INSERT INTO account_snapshots (token, payload, updated_at)
-                VALUES ($1, $2, $3)
-                ON CONFLICT(token) DO UPDATE SET
-                    payload = EXCLUDED.payload,
-                    updated_at = EXCLUDED.updated_at
-                ",
-                &[&token, &payload, &updated_at],
-            )
-            .map_err(|err| err.to_string())?;
-        Ok(())
+        let token = token.to_string();
+        let payload = payload.to_string();
+        with_backend_postgres(database_url, move |client| {
+            client
+                .execute(
+                    "
+                    INSERT INTO account_snapshots (token, payload, updated_at)
+                    VALUES ($1, $2, $3)
+                    ON CONFLICT(token) DO UPDATE SET
+                        payload = EXCLUDED.payload,
+                        updated_at = EXCLUDED.updated_at
+                    ",
+                    &[&token, &payload, &updated_at],
+                )
+                .map_err(|err| err.to_string())?;
+            Ok(())
+        })
     }
 }
 
@@ -504,29 +512,41 @@ fn is_postgres_database_url(value: &str) -> bool {
     trimmed.starts_with("postgres://") || trimmed.starts_with("postgresql://")
 }
 
-fn connect_backend_postgres(database_url: &str) -> Result<PgClient, String> {
-    PgClient::connect(database_url, NoTls).map_err(|err| err.to_string())
+fn with_backend_postgres<T, F>(database_url: &str, operation: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(&mut PgClient) -> Result<T, String> + Send + 'static,
+{
+    let database_url = database_url.to_string();
+    std::thread::spawn(move || {
+        let mut client = PgClient::connect(&database_url, NoTls).map_err(|err| err.to_string())?;
+        operation(&mut client)
+    })
+    .join()
+    .map_err(|_| "BACKEND_POSTGRES_WORKER_PANICKED".to_string())?
 }
 
 fn initialize_backend_database(database_url: &str) -> Result<(), String> {
-    let mut client = connect_backend_postgres(database_url)?;
-    client
-        .batch_execute(
-            "
-            CREATE TABLE IF NOT EXISTS prompt_configs (
-                config_key TEXT PRIMARY KEY,
-                payload TEXT NOT NULL,
-                updated_at TEXT
-            );
+    with_backend_postgres(database_url, move |client| {
+        client
+            .batch_execute(
+                "
+                CREATE TABLE IF NOT EXISTS prompt_configs (
+                    config_key TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL,
+                    updated_at TEXT
+                );
 
-            CREATE TABLE IF NOT EXISTS account_snapshots (
-                token TEXT PRIMARY KEY,
-                payload TEXT NOT NULL,
-                updated_at TEXT
-            );
-            ",
-        )
-        .map_err(|err| err.to_string())
+                CREATE TABLE IF NOT EXISTS account_snapshots (
+                    token TEXT PRIMARY KEY,
+                    payload TEXT NOT NULL,
+                    updated_at TEXT
+                );
+                ",
+            )
+            .map_err(|err| err.to_string())?;
+        Ok(())
+    })
 }
 
 fn resolve_runtime_path(name: &str) -> PathBuf {
