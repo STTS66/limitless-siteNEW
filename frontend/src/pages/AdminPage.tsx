@@ -622,6 +622,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
                         nickname={getDisplayProfileName(user)}
                         avatarDataUrl={user.profileAvatarDataUrl}
                         avatarHue={user.profileAvatarHue}
+                        fallback="initials"
                       />
                       <div className="admin-user-title-group">
                         <h3 className="admin-user-name">{getDisplayProfileName(user)}</h3>
