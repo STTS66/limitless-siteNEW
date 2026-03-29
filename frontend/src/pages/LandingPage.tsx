@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ProfileAvatar } from '../components/ProfileAvatar';
 import { AccountProfile } from '../types';
 import { getApiUrl } from '../utils/api';
@@ -31,6 +31,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const [terminalMessageType, setTerminalMessageType] = useState<'idle' | 'error' | 'success'>('idle');
   const [isUnlocking, setIsUnlocking] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const navCapsuleRef = useRef<HTMLElement | null>(null);
 
   const terminalLines = [
     { kind: 'muted', text: 'limitless@node:~$ status' },
@@ -56,6 +57,37 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const openAgreement = () => {
     window.location.href = agreementUrl;
   };
+
+  useEffect(() => {
+    if (!mobileNavOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!navCapsuleRef.current) {
+        return;
+      }
+
+      const target = event.target;
+      if (target instanceof Node && !navCapsuleRef.current.contains(target)) {
+        setMobileNavOpen(false);
+      }
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMobileNavOpen(false);
+      }
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('keydown', handleEscape);
+
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [mobileNavOpen]);
 
   const handleTerminalLogin = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -107,7 +139,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       <div className="bg-orb bg-orb-3" />
 
       <div className="landing-nav-shell">
-        <nav className="landing-nav-capsule">
+        <nav ref={navCapsuleRef} className="landing-nav-capsule">
           <div className="landing-brand">
             <img className="landing-brand-icon" src="/limitless-icon.svg" alt="Limitless icon" />
             <span className="landing-brand-text">LIMITLESS</span>
