@@ -147,6 +147,10 @@
   color: var(--text-primary);
 }
 
+.landing-nav-link-mobile-only {
+  display: none;
+}
+
 .landing-nav-link::before,
 .landing-login-btn::before,
 .landing-pill-btn::before,
@@ -981,10 +985,14 @@
     text-align: center;
   }
 
+  .landing-nav-link-mobile-only {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
   .landing-profile-chip {
-    justify-content: flex-start;
-    width: auto;
-    max-width: min(220px, 100%);
+    display: none;
   }
 
   .landing-login-btn {

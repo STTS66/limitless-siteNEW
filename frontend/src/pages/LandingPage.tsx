@@ -126,7 +126,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           </button>
 
           <div className={`landing-nav-links${mobileNavOpen ? ' landing-nav-links-open' : ''}`}>
-            <button type="button" className="landing-nav-link" onClick={openAgreement} title="Пользовательское соглашение">
+            <button type="button" className="landing-nav-link" onClick={() => { setMobileNavOpen(false); openAgreement(); }} title="Пользовательское соглашение">
               Соглашение
             </button>
             <button type="button" className="landing-nav-link" onClick={() => { setMobileNavOpen(false); scrollToSection('home'); }}>
@@ -138,6 +138,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <button type="button" className="landing-nav-link" onClick={() => { setMobileNavOpen(false); openSupportBot(); }}>
               Поддержка
             </button>
+            {isAuthenticated && profile && onOpenProfile && (
+              <button type="button" className="landing-nav-link landing-nav-link-mobile-only" onClick={() => { setMobileNavOpen(false); onOpenProfile(); }}>
+                Профиль
+              </button>
+            )}
           </div>
 
           {isAuthenticated && profile ? (
