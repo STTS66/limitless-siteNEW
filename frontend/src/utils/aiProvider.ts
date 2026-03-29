@@ -1,9 +1,16 @@
 import { Message } from '../types';
 import { fetchApi } from './api';
-import { fetchPromptConfig } from './gemini';
+import {
+  fetchPromptConfig,
+  GEMINI_MODEL_DESCRIPTION,
+  GEMINI_MODEL_ID,
+  GEMINI_MODEL_LABEL,
+  sendMessageToGemini,
+} from './gemini';
 
-export const AI_PROVIDER_NAME = 'SosiskiBot API';
-export const AI_PROVIDER_DOCS_URL = 'https://sosiskibot.ru/dashboard/docs';
+export type AIProviderId = 'sosiskibot' | 'gemini';
+
+export const DEFAULT_AI_PROVIDER_ID: AIProviderId = 'sosiskibot';
 export const DEFAULT_CHAT_MODEL_ID = 'gpt-5.2-chat-latest';
 
 export interface AIModelOption {
@@ -11,6 +18,28 @@ export interface AIModelOption {
   label: string;
   description: string;
 }
+
+export interface AIProviderOption {
+  id: AIProviderId;
+  label: string;
+  description: string;
+  docsUrl: string;
+}
+
+const PROVIDERS: Record<AIProviderId, AIProviderOption> = {
+  sosiskibot: {
+    id: 'sosiskibot',
+    label: 'SosiskiBot API',
+    description: 'OpenAI-совместимый API со списком моделей и чат-комплишенами.',
+    docsUrl: 'https://sosiskibot.ru/dashboard/docs',
+  },
+  gemini: {
+    id: 'gemini',
+    label: 'Gemini',
+    description: 'Прямое подключение к Google Gemini по API ключу.',
+    docsUrl: 'https://aistudio.google.com/app/apikey',
+  },
+};
 
 const FALLBACK_CHAT_MODELS: AIModelOption[] = [
   {
@@ -29,6 +58,30 @@ const FALLBACK_CHAT_MODELS: AIModelOption[] = [
     description: 'Мультимодальная версия для текста и изображений.',
   },
 ];
+
+const GEMINI_MODELS: AIModelOption[] = [
+  {
+    id: GEMINI_MODEL_ID,
+    label: GEMINI_MODEL_LABEL,
+    description: GEMINI_MODEL_DESCRIPTION,
+  },
+];
+
+export function getProviderOptions(): AIProviderOption[] {
+  return Object.values(PROVIDERS);
+}
+
+export function getProviderConfig(providerId?: string | null): AIProviderOption {
+  if (providerId === 'gemini') {
+    return PROVIDERS.gemini;
+  }
+
+  return PROVIDERS.sosiskibot;
+}
+
+export function getDefaultModelId(providerId?: string | null): string {
+  return providerId === 'gemini' ? GEMINI_MODEL_ID : DEFAULT_CHAT_MODEL_ID;
+}
 
 function normalizeModelDescription(model: Record<string, unknown>): string {
   const ownedBy = typeof model.owned_by === 'string' ? model.owned_by.trim() : '';
@@ -152,9 +205,17 @@ function resolveProviderError(error?: string): string {
   return normalized;
 }
 
-export async function fetchAvailableModels(apiKey: string, signal?: AbortSignal): Promise<AIModelOption[]> {
+export async function fetchAvailableModels(
+  providerId: AIProviderId,
+  apiKey: string,
+  signal?: AbortSignal,
+): Promise<AIModelOption[]> {
+  if (providerId === 'gemini') {
+    return GEMINI_MODELS;
+  }
+
   if (!apiKey.trim()) {
-    return FALLBACK_CHAT_MODELS;
+    return getFallbackModels(providerId);
   }
 
   const response = await fetchApi(
@@ -179,13 +240,18 @@ export async function fetchAvailableModels(apiKey: string, signal?: AbortSignal)
 
 export async function sendChatCompletion(
   messages: Message[],
+  providerId: AIProviderId,
   apiKey: string,
   model: string,
   signal?: AbortSignal,
 ): Promise<string> {
   const trimmedApiKey = apiKey.trim();
   if (!trimmedApiKey) {
-    throw new Error('API ключ не настроен. Откройте настройки и добавьте ключ SosiskiBot API.');
+    throw new Error(`API ключ не настроен. Откройте настройки и добавьте ключ ${getProviderConfig(providerId).label}.`);
+  }
+
+  if (providerId === 'gemini') {
+    return sendMessageToGemini(messages, trimmedApiKey, signal);
   }
 
   const promptConfig = await fetchPromptConfig(signal);
@@ -224,6 +290,6 @@ export async function sendChatCompletion(
   return content;
 }
 
-export function getFallbackModels(): AIModelOption[] {
-  return FALLBACK_CHAT_MODELS;
+export function getFallbackModels(providerId: AIProviderId = DEFAULT_AI_PROVIDER_ID): AIModelOption[] {
+  return providerId === 'gemini' ? GEMINI_MODELS : FALLBACK_CHAT_MODELS;
 }

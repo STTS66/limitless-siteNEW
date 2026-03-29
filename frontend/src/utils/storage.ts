@@ -1,5 +1,5 @@
 import { AccountProfile, Chat, UserSettings } from '../types';
-import { DEFAULT_CHAT_MODEL_ID } from './aiProvider';
+import { DEFAULT_AI_PROVIDER_ID, getDefaultModelId } from './aiProvider';
 import { normalizeAccountProfile } from './profile';
 
 const LEGACY_CHATS_KEY = 'limitless_chats';
@@ -26,6 +26,9 @@ export interface AccountSnapshot {
 
 type StoredSettings = Partial<UserSettings> & {
   geminiApiKey?: string;
+  provider?: string;
+  providerId?: string;
+  aiProvider?: string;
   selectedModel?: string;
   model?: string;
 };
@@ -36,7 +39,12 @@ type StoredAccountSnapshot = Omit<Partial<AccountSnapshot>, 'settings' | 'profil
 };
 
 function createDefaultSettings(): UserSettings {
-  return { apiKey: '', selectedModelId: DEFAULT_CHAT_MODEL_ID, theme: 'dark' };
+  return {
+    providerId: DEFAULT_AI_PROVIDER_ID,
+    apiKey: '',
+    selectedModelId: getDefaultModelId(DEFAULT_AI_PROVIDER_ID),
+    theme: 'dark',
+  };
 }
 
 function createEmptyAccountSnapshot(token?: string | null): AccountSnapshot {
@@ -63,6 +71,13 @@ function safeJsonParse<T>(value: string | null, fallback: T): T {
 
 function normalizeSettings(settings?: StoredSettings | null): UserSettings {
   const theme = settings?.theme === 'light' ? 'light' : 'dark';
+  const providerSource = typeof settings?.providerId === 'string'
+    ? settings.providerId
+    : typeof settings?.provider === 'string'
+      ? settings.provider
+      : typeof settings?.aiProvider === 'string'
+        ? settings.aiProvider
+        : DEFAULT_AI_PROVIDER_ID;
   const apiKeySource = typeof settings?.apiKey === 'string'
     ? settings.apiKey
     : typeof settings?.geminiApiKey === 'string'
@@ -76,9 +91,12 @@ function normalizeSettings(settings?: StoredSettings | null): UserSettings {
         ? settings.model
         : '';
 
+  const providerId = providerSource === 'gemini' ? 'gemini' : DEFAULT_AI_PROVIDER_ID;
+
   return {
+    providerId,
     apiKey: apiKeySource.trim(),
-    selectedModelId: selectedModelSource.trim() || DEFAULT_CHAT_MODEL_ID,
+    selectedModelId: selectedModelSource.trim() || getDefaultModelId(providerId),
     theme,
   };
 }

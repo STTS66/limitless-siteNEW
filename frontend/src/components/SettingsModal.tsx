@@ -2,11 +2,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { AccountProfile } from '../types';
 import { saveRemoteAccountSnapshot } from '../utils/accountApi';
 import {
-  AI_PROVIDER_DOCS_URL,
-  AI_PROVIDER_NAME,
-  DEFAULT_CHAT_MODEL_ID,
+  DEFAULT_AI_PROVIDER_ID,
   fetchAvailableModels,
+  getDefaultModelId,
   getFallbackModels,
+  getProviderConfig,
+  getProviderOptions,
+  type AIProviderId,
   type AIModelOption,
 } from '../utils/aiProvider';
 import { DEFAULT_PROMPT_NAME, fetchPromptConfig } from '../utils/gemini';
@@ -29,8 +31,9 @@ interface SettingsModalProps {
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, onProfileSaved }) => {
+  const [providerId, setProviderId] = useState<AIProviderId>(DEFAULT_AI_PROVIDER_ID);
   const [apiKey, setApiKey] = useState('');
-  const [selectedModelId, setSelectedModelId] = useState(DEFAULT_CHAT_MODEL_ID);
+  const [selectedModelId, setSelectedModelId] = useState(getDefaultModelId(DEFAULT_AI_PROVIDER_ID));
   const [promptName, setPromptName] = useState(DEFAULT_PROMPT_NAME);
   const [nickname, setNickname] = useState(profile.nickname);
   const [profileId, setProfileId] = useState(profile.profileId);
@@ -47,8 +50,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
 
   useEffect(() => {
     const settings = loadSettings(authToken);
+    setProviderId(settings.providerId || DEFAULT_AI_PROVIDER_ID);
     setApiKey(settings.apiKey || '');
-    setSelectedModelId(settings.selectedModelId || DEFAULT_CHAT_MODEL_ID);
+    setSelectedModelId(settings.selectedModelId || getDefaultModelId(settings.providerId));
     setNickname(profile.nickname);
     setProfileId(profile.profileId);
     setAvatarDataUrl(profile.avatarDataUrl);
@@ -72,7 +76,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
     const trimmedApiKey = apiKey.trim();
 
     if (!trimmedApiKey) {
-      setModels(getFallbackModels());
+      const fallbackModels = getFallbackModels(providerId);
+      setModels(fallbackModels);
+      if (!fallbackModels.some((model) => model.id === selectedModelId)) {
+        setSelectedModelId(fallbackModels[0]?.id || getDefaultModelId(providerId));
+      }
       setModelsError('');
       return () => controller.abort();
     }
@@ -80,7 +88,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
     setModelsLoading(true);
     setModelsError('');
 
-    fetchAvailableModels(trimmedApiKey, controller.signal)
+    fetchAvailableModels(providerId, trimmedApiKey, controller.signal)
       .then((nextModels) => {
         if (!isMounted) {
           return;
@@ -88,7 +96,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
 
         setModels(nextModels);
         if (!nextModels.some((model) => model.id === selectedModelId)) {
-          setSelectedModelId(nextModels[0]?.id || DEFAULT_CHAT_MODEL_ID);
+          setSelectedModelId(nextModels[0]?.id || getDefaultModelId(providerId));
         }
       })
       .catch((error: Error) => {
@@ -96,7 +104,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
           return;
         }
 
-        setModels(getFallbackModels());
+        setModels(getFallbackModels(providerId));
         setModelsError(error.message);
       })
       .finally(() => {
@@ -109,7 +117,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
       isMounted = false;
       controller.abort();
     };
-  }, [apiKey, selectedModelId]);
+  }, [apiKey, providerId, selectedModelId]);
 
   const handleAvatarUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -143,7 +151,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
   const handleRefreshModels = async () => {
     const trimmedApiKey = apiKey.trim();
     if (!trimmedApiKey) {
-      setModels(getFallbackModels());
+      const fallbackModels = getFallbackModels(providerId);
+      setModels(fallbackModels);
+      if (!fallbackModels.some((model) => model.id === selectedModelId)) {
+        setSelectedModelId(fallbackModels[0]?.id || getDefaultModelId(providerId));
+      }
       setModelsError('Сначала добавьте API ключ.');
       return;
     }
@@ -152,10 +164,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
     setModelsError('');
 
     try {
-      const nextModels = await fetchAvailableModels(trimmedApiKey);
+      const nextModels = await fetchAvailableModels(providerId, trimmedApiKey);
       setModels(nextModels);
       if (!nextModels.some((model) => model.id === selectedModelId)) {
-        setSelectedModelId(nextModels[0]?.id || DEFAULT_CHAT_MODEL_ID);
+        setSelectedModelId(nextModels[0]?.id || getDefaultModelId(providerId));
       }
     } catch (error: any) {
       setModelsError(error?.message || 'Не удалось обновить список моделей.');
@@ -168,8 +180,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
     setSaveError('');
 
     const nextSettings = {
+      providerId,
       apiKey: apiKey.trim(),
-      selectedModelId: selectedModelId.trim() || DEFAULT_CHAT_MODEL_ID,
+      selectedModelId: selectedModelId.trim() || getDefaultModelId(providerId),
       theme: 'dark' as const,
     };
     const nextProfile = normalizeAccountProfile(
@@ -215,6 +228,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
   };
 
   const selectedModel = models.find((model) => model.id === selectedModelId);
+  const providerConfig = getProviderConfig(providerId);
+  const providerOptions = getProviderOptions();
 
   return (
     <div className="settings-overlay" onClick={handleOverlayClick}>
@@ -311,12 +326,37 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
               </svg>
+              Провайдер
+            </label>
+            <div className="settings-model-row">
+              <div className="settings-select-group">
+                <select
+                  className="settings-select"
+                  value={providerId}
+                  onChange={(event) => setProviderId(event.target.value as AIProviderId)}
+                >
+                  {providerOptions.map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <p className="settings-hint">{providerConfig.description}</p>
+          </div>
+
+          <div className="settings-section">
+            <label className="settings-label">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
+              </svg>
               API ключ
             </label>
             <p className="settings-hint">
               Подключение идет через{' '}
-              <a href={AI_PROVIDER_DOCS_URL} target="_blank" rel="noopener noreferrer">
-                {AI_PROVIDER_NAME}
+              <a href={providerConfig.docsUrl} target="_blank" rel="noopener noreferrer">
+                {providerConfig.label}
               </a>
               .
             </p>

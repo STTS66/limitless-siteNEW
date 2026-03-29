@@ -113,6 +113,8 @@ pub struct AccountChat {
 pub struct AccountSettings {
     #[serde(default, alias = "geminiApiKey")]
     pub api_key: String,
+    #[serde(default = "default_ai_provider_id", alias = "provider", alias = "aiProvider")]
+    pub provider_id: String,
     #[serde(default = "default_chat_model_id", alias = "selectedModel")]
     pub selected_model_id: String,
     #[serde(default = "default_theme")]
@@ -600,6 +602,10 @@ fn default_theme() -> String {
     "dark".to_string()
 }
 
+fn default_ai_provider_id() -> String {
+    "sosiskibot".to_string()
+}
+
 fn default_chat_model_id() -> String {
     DEFAULT_CHAT_MODEL_ID.to_string()
 }
@@ -607,6 +613,7 @@ fn default_chat_model_id() -> String {
 fn default_account_settings() -> AccountSettings {
     AccountSettings {
         api_key: String::new(),
+        provider_id: default_ai_provider_id(),
         selected_model_id: default_chat_model_id(),
         theme: default_theme(),
     }
@@ -714,6 +721,14 @@ fn normalize_account_profile(profile: AccountProfile, token: Option<&str>) -> Ac
 fn normalize_account_snapshot(mut snapshot: AccountSnapshot, token: Option<&str>) -> AccountSnapshot {
     if snapshot.settings.api_key.trim().is_empty() {
         snapshot.settings.api_key = String::new();
+    }
+
+    if snapshot.settings.provider_id.trim().is_empty() {
+        snapshot.settings.provider_id = default_ai_provider_id();
+    }
+
+    if snapshot.settings.provider_id != "sosiskibot" && snapshot.settings.provider_id != "gemini" {
+        snapshot.settings.provider_id = default_ai_provider_id();
     }
 
     if snapshot.settings.selected_model_id.trim().is_empty() {

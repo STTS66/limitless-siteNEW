@@ -14,6 +14,7 @@ export interface Chat {
 }
 
 export interface UserSettings {
+  providerId: 'sosiskibot' | 'gemini';
   apiKey: string;
   selectedModelId: string;
   theme: 'dark' | 'light';
