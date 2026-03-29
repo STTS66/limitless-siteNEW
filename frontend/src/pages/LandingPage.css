@@ -910,6 +910,7 @@
   .landing-brand {
     width: auto;
     justify-content: flex-start;
+    min-width: 0;
   }
 
   .landing-nav-links {
@@ -934,25 +935,31 @@
 
   .landing-content {
     padding:
-      12px
+      10px
       calc(14px + var(--safe-right))
-      calc(28px + var(--safe-bottom))
+      calc(24px + var(--safe-bottom))
       calc(14px + var(--safe-left));
   }
 
   .landing-hero {
     min-height: auto;
-    padding: 16px 0 26px;
-    gap: 14px;
+    padding: 12px 0 22px;
+    gap: 12px;
   }
 
   .landing-hero-copy {
-    gap: 14px;
+    gap: 12px;
+  }
+
+  .landing-title {
+    font-size: clamp(38px, 10vw, 56px);
+    line-height: 0.96;
   }
 
   .landing-description {
-    font-size: 15px;
-    line-height: 1.56;
+    max-width: 36ch;
+    font-size: 14px;
+    line-height: 1.52;
   }
 
   .landing-cta-row {
@@ -968,28 +975,38 @@
   }
 
   .landing-terminal-window {
-    border-radius: 22px;
+    border-radius: 20px;
   }
 
   .landing-terminal-toolbar,
   .landing-terminal-body {
-    padding-left: 14px;
-    padding-right: 14px;
+    padding-left: 12px;
+    padding-right: 12px;
   }
 
   .landing-terminal-toolbar {
     grid-template-columns: auto 1fr;
     gap: 10px;
+    padding-top: 12px;
+    padding-bottom: 10px;
   }
 
   .landing-terminal-chip {
     grid-column: 1 / -1;
     justify-self: start;
+    min-height: 34px;
+    padding: 0 12px;
+    font-size: 11px;
   }
 
   .landing-terminal-output {
     min-height: 0;
-    gap: 10px;
+    gap: 8px;
+  }
+
+  .landing-terminal-line {
+    font-size: 12px;
+    line-height: 1.48;
   }
 
   .landing-terminal-actions {
@@ -1004,10 +1021,17 @@
   .landing-terminal-input-prefix {
     overflow: hidden;
     text-overflow: ellipsis;
+    font-size: 11px;
+  }
+
+  .landing-terminal-input {
+    min-height: 44px;
+    padding: 0 12px;
+    font-size: 14px;
   }
 
   .landing-section {
-    padding-top: 24px;
+    padding-top: 20px;
   }
 
   .landing-pill-btn,
@@ -1043,13 +1067,16 @@
   }
 
   .landing-nav-capsule {
-    gap: 8px;
+    grid-template-columns: 1fr;
+    gap: 6px;
     padding: 8px;
-    border-radius: 22px;
+    border-radius: 20px;
   }
 
   .landing-brand {
     gap: 8px;
+    width: 100%;
+    justify-content: center;
   }
 
   .landing-brand-icon {
@@ -1063,6 +1090,7 @@
   }
 
   .landing-nav-links {
+    grid-template-columns: 1fr;
     gap: 6px;
   }
 
@@ -1077,6 +1105,7 @@
   .landing-profile-chip {
     gap: 10px;
     padding: 8px 10px;
+    justify-content: flex-start;
   }
 
   .landing-profile-avatar {
@@ -1094,35 +1123,36 @@
 
   .landing-content {
     padding:
-      8px
+      6px
       calc(10px + var(--safe-right))
-      calc(22px + var(--safe-bottom))
+      calc(18px + var(--safe-bottom))
       calc(10px + var(--safe-left));
   }
 
   .landing-hero {
-    gap: 12px;
-    padding: 12px 0 20px;
+    gap: 10px;
+    padding: 10px 0 16px;
   }
 
   .landing-hero-badge {
-    padding: 7px 12px;
+    padding: 6px 10px;
     font-size: 11px;
     letter-spacing: 1.1px;
   }
 
   .landing-title {
-    font-size: clamp(30px, 10.6vw, 38px);
+    max-width: 10ch;
+    font-size: clamp(28px, 10vw, 36px);
     line-height: 0.98;
   }
 
   .landing-hero-grid {
-    gap: 18px;
+    gap: 14px;
   }
 
   .landing-description {
-    font-size: 14px;
-    line-height: 1.52;
+    font-size: 13px;
+    line-height: 1.48;
   }
 
   .landing-section-buttons {
@@ -1131,13 +1161,13 @@
 
   .landing-primary-btn,
   .landing-secondary-btn {
-    min-height: 46px;
-    padding: 0 16px;
-    font-size: 13px;
+    min-height: 44px;
+    padding: 0 14px;
+    font-size: 12.5px;
   }
 
   .landing-section {
-    padding: 24px 0 8px;
+    padding: 18px 0 6px;
   }
 
   .landing-section-heading {
@@ -1150,29 +1180,29 @@
   }
 
   .landing-grid {
-    gap: 14px;
+    gap: 12px;
   }
 
   .landing-card {
-    padding: 20px 18px;
-    border-radius: 20px;
+    padding: 18px;
+    border-radius: 18px;
   }
 
   .landing-card h3 {
-    font-size: 17px;
+    font-size: 16px;
   }
 
   .landing-card p {
     font-size: 13px;
-    line-height: 1.62;
+    line-height: 1.56;
   }
 
   .landing-support-note {
     margin-top: 14px;
-    padding: 16px;
+    padding: 14px;
     border-radius: 18px;
     font-size: 13px;
-    line-height: 1.58;
+    line-height: 1.56;
   }
 
   .landing-support-btn {
@@ -1182,12 +1212,12 @@
   }
 
   .landing-terminal-window {
-    border-radius: 20px;
+    border-radius: 18px;
   }
 
   .landing-terminal-toolbar {
-    gap: 10px;
-    padding: 14px;
+    gap: 8px;
+    padding: 10px 12px 8px;
   }
 
   .landing-terminal-title {
@@ -1195,18 +1225,28 @@
   }
 
   .landing-terminal-body {
-    padding: 16px 14px 15px;
+    padding: 12px 12px 12px;
+    gap: 10px;
   }
 
   .landing-terminal-prompt,
   .landing-terminal-line,
   .landing-terminal-input,
-  .landing-terminal-feedback {
+  .landing-terminal-feedback,
+  .landing-terminal-status {
     font-size: 12px;
   }
 
   .landing-terminal-input-prefix {
     font-size: 11px;
+  }
+
+  .landing-terminal-output .landing-terminal-line:nth-child(n + 5) {
+    display: none;
+  }
+
+  .landing-terminal-input {
+    min-height: 42px;
   }
 
   .landing-footer-links {
@@ -1228,6 +1268,7 @@
   .landing-nav-capsule {
     padding: 7px;
     gap: 7px;
+    border-radius: 18px;
   }
 
   .landing-brand {
@@ -1268,14 +1309,14 @@
 
   .landing-content {
     padding:
-      6px
+      4px
       calc(8px + var(--safe-right))
-      calc(18px + var(--safe-bottom))
+      calc(16px + var(--safe-bottom))
       calc(8px + var(--safe-left));
   }
 
   .landing-hero-copy {
-    gap: 12px;
+    gap: 10px;
   }
 
   .landing-hero-badge {
@@ -1285,12 +1326,12 @@
   }
 
   .landing-title {
-    font-size: clamp(26px, 10vw, 32px);
+    font-size: clamp(26px, 9.5vw, 32px);
     letter-spacing: -0.03em;
   }
 
   .landing-description {
-    font-size: 13px;
+    font-size: 12.5px;
     line-height: 1.48;
   }
 
@@ -1314,7 +1355,7 @@
   }
 
   .landing-terminal-body {
-    padding: 12px 11px 14px;
+    padding: 12px 10px 12px;
     gap: 10px;
   }
 
@@ -1340,15 +1381,15 @@
   }
 
   .landing-terminal-input {
-    min-height: 38px;
+    min-height: 40px;
   }
 
   .landing-section {
-    padding: 20px 0 6px;
+    padding: 18px 0 6px;
   }
 
   .landing-card {
-    padding: 16px 14px;
+    padding: 15px 14px;
     border-radius: 18px;
   }
 

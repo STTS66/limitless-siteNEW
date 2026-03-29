@@ -382,6 +382,8 @@
 
   .settings-profile-card {
     align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
   }
 
   .settings-profile-avatar {
@@ -389,9 +391,30 @@
     height: 60px;
   }
 
+  .settings-profile-meta,
+  .settings-profile-actions {
+    width: 100%;
+  }
+
+  .settings-profile-actions {
+    gap: 8px;
+  }
+
+  .settings-avatar-button {
+    flex: 1 1 0;
+    min-height: 40px;
+    justify-content: center;
+  }
+
   .settings-input {
     padding: 14px;
     font-size: 16px;
+  }
+
+  .settings-profile-id-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
   }
 
   .model-info,
@@ -454,12 +477,14 @@
   }
 
   .settings-profile-actions {
+    flex-direction: column;
     gap: 6px;
   }
 
   .settings-avatar-button {
     width: 100%;
     justify-content: center;
+    min-height: 38px;
   }
 
   .settings-title {
@@ -508,11 +533,13 @@
   .settings-profile-card {
     flex-direction: column;
     align-items: flex-start;
+    gap: 10px;
+    padding: 10px;
   }
 
   .settings-profile-avatar {
-    width: 52px;
-    height: 52px;
+    width: 50px;
+    height: 50px;
   }
 
   .settings-profile-meta,
@@ -526,6 +553,7 @@
 
   .settings-input {
     padding: 13px 12px;
+    font-size: 15px;
   }
 
   .toggle-visibility {
@@ -536,6 +564,13 @@
   .system-prompt-info {
     gap: 7px;
     padding: 10px 12px;
+  }
+
+  .settings-profile-id,
+  .settings-profile-id-code,
+  .model-badge,
+  .prompt-badge {
+    font-size: 11px;
   }
 
   .settings-footer {

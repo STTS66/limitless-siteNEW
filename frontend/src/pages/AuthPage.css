@@ -300,7 +300,7 @@
 
   .auth-card {
     max-width: none;
-    padding: 34px 22px 28px;
+    padding: 30px 20px 24px;
     border-radius: 20px;
   }
 
@@ -310,7 +310,7 @@
   }
 
   .auth-logo {
-    margin: 14px 0 26px;
+    margin: 12px 0 22px;
     gap: 8px;
   }
 
@@ -324,14 +324,18 @@
   }
 
   .auth-brand-text {
-    font-size: 28px;
-    letter-spacing: 3px;
+    font-size: 26px;
+    letter-spacing: 2.6px;
   }
 
   .auth-subtitle {
     font-size: 12px;
-    letter-spacing: 2px;
+    letter-spacing: 1.8px;
     text-align: center;
+  }
+
+  .auth-form {
+    gap: 16px;
   }
 
   .auth-input-icon {
@@ -349,7 +353,7 @@
   }
 
   .auth-footer {
-    margin-top: 20px;
+    margin-top: 18px;
     line-height: 1.5;
   }
 
@@ -368,7 +372,7 @@
   }
 
   .auth-card {
-    padding: 28px 16px 22px;
+    padding: 24px 14px 20px;
     border-radius: 18px;
   }
 
@@ -381,7 +385,7 @@
   }
 
   .auth-logo {
-    margin: 10px 0 20px;
+    margin: 8px 0 18px;
   }
 
   .auth-brand {
@@ -394,8 +398,8 @@
   }
 
   .auth-brand-text {
-    font-size: 24px;
-    letter-spacing: 2px;
+    font-size: 22px;
+    letter-spacing: 1.8px;
   }
 
   .auth-subtitle {
@@ -404,11 +408,11 @@
   }
 
   .auth-form {
-    gap: 14px;
+    gap: 12px;
   }
 
   .auth-input {
-    padding: 13px 12px;
+    padding: 12px 12px;
   }
 
   .auth-error,
@@ -418,8 +422,8 @@
   }
 
   .auth-button {
-    min-height: 48px;
-    padding: 13px 18px;
+    min-height: 46px;
+    padding: 12px 16px;
     font-size: 14px;
   }
 }
@@ -434,7 +438,7 @@
   }
 
   .auth-card {
-    padding: 24px 14px 18px;
+    padding: 22px 12px 16px;
   }
 
   .auth-back {
@@ -446,9 +450,23 @@
     margin: 8px 0 16px;
   }
 
+  .auth-brand {
+    gap: 7px;
+  }
+
+  .auth-brand-icon {
+    width: 28px;
+    height: 28px;
+  }
+
   .auth-brand-text {
-    font-size: 21px;
-    letter-spacing: 1.6px;
+    font-size: 20px;
+    letter-spacing: 1.5px;
+  }
+
+  .auth-subtitle {
+    font-size: 10px;
+    letter-spacing: 1.3px;
   }
 
   .auth-input-icon {
@@ -457,7 +475,7 @@
 
   .auth-input {
     padding: 12px 10px;
-    font-size: 16px;
+    font-size: 15px;
   }
 
   .auth-button {
