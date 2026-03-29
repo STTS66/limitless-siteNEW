@@ -174,7 +174,14 @@
   font-size: 13px;
   outline: none;
   appearance: none;
+  color-scheme: dark;
   cursor: pointer;
+}
+
+.settings-select option,
+.settings-select optgroup {
+  background: #161623;
+  color: var(--text-primary);
 }
 
 .settings-model-refresh {
