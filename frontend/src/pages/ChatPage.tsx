@@ -25,6 +25,7 @@ import {
   streamMessageToGemini,
   sendMessageToGemini,
 } from '../utils/gemini';
+import { resolveInstantCommand } from '../utils/commands';
 import './ChatPage.css';
 
 interface ChatPageProps {
@@ -184,8 +185,14 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onGoHome }) => {
       return;
     }
 
+    const instantCommand = resolveInstantCommand({
+      input: content,
+      promptName,
+      profile,
+    });
+
     const settings = loadSettings(authToken);
-    if (!settings.geminiApiKey) {
+    if (!instantCommand && !settings.geminiApiKey) {
       setError('API ключ не настроен. Откройте настройки через кнопку внизу бокового меню.');
       return;
     }
@@ -218,6 +225,28 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onGoHome }) => {
 
     setChats((prev) => prev.map((c) => c.id === chatId ? updatedChat : c));
     setInputValue('');
+
+    if (instantCommand) {
+      const assistantMessage: Message = {
+        id: generateId(),
+        role: 'assistant',
+        content: instantCommand.response,
+        timestamp: Date.now(),
+      };
+
+      setChats((prev) => prev.map((c) => {
+        if (c.id === chatId) {
+          return {
+            ...c,
+            messages: [...c.messages, assistantMessage],
+            updatedAt: Date.now(),
+          };
+        }
+        return c;
+      }));
+      return;
+    }
+
     setIsGenerating(true);
     setStreamingText('');
 
@@ -269,7 +298,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onGoHome }) => {
       setStreamingText('');
       abortControllerRef.current = null;
     }
-  }, [inputValue, isGenerating, currentChatId, currentChat]);
+  }, [inputValue, isGenerating, currentChatId, currentChat, authToken, profile, promptName]);
 
   const handleStopGeneration = useCallback(() => {
     abortControllerRef.current?.abort();
