@@ -15,6 +15,15 @@ export function getApiUrl(path: string): string {
 export async function fetchApi(path: string, options: RequestInit = {}, timeoutMs = 15000): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+  const externalSignal = options.signal;
+
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
+    }
+  }
 
   try {
     return await fetch(getApiUrl(path), {

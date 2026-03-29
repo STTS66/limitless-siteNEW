@@ -36,7 +36,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const terminalLines = [
     { kind: 'muted', text: 'limitless@node:~$ status' },
     { kind: 'success', text: 'prompt profile: limitless-1.5' },
-    { kind: 'success', text: 'model route: gemini-3-flash' },
+    { kind: 'success', text: 'model route: gpt-5.2-chat-latest' },
     { kind: 'muted', text: 'limitless@node:~$ runtime --check cache' },
     { kind: 'success', text: 'cache synced successfully' },
     { kind: 'muted', text: 'limitless@node:~$ support --open telegram' },
@@ -328,7 +328,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               <h3>Другой стиль ответов</h3>
               <p>
                 Limitless меняет подачу: ответы ощущаются более быстрыми, прямыми и цельными. Это не отдельная модель, а готовый режим
-                работы поверх Gemini 3 Flash.
+                работы поверх OpenAI-совместимого API.
               </p>
             </article>
 

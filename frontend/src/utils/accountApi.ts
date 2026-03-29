@@ -1,5 +1,5 @@
 import { fetchApi } from './api';
-import { AccountSnapshot } from './storage';
+import { AccountSnapshot, normalizeStoredAccountSnapshot } from './storage';
 
 function getAccountHeaders(token: string, deviceId: string, includeJson = false): HeadersInit {
   return {
@@ -19,7 +19,7 @@ export async function fetchRemoteAccountSnapshot(token: string, deviceId: string
     throw new Error('ACCOUNT_SYNC_LOAD_FAILED');
   }
 
-  return response.json();
+  return normalizeStoredAccountSnapshot(await response.json(), token);
 }
 
 export async function saveRemoteAccountSnapshot(
@@ -37,5 +37,5 @@ export async function saveRemoteAccountSnapshot(
     throw new Error('ACCOUNT_SYNC_SAVE_FAILED');
   }
 
-  return response.json();
+  return normalizeStoredAccountSnapshot(await response.json(), token);
 }

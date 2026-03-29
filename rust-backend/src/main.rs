@@ -3,6 +3,7 @@ use actix_web::rt::time::sleep;
 use actix_web::{http::header, web, App, HttpRequest, HttpResponse, HttpServer};
 use postgres::{Client as PgClient, NoTls};
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -15,6 +16,8 @@ mod auth;
 const DEFAULT_PROMPT_NAME: &str = "Limitless 1.5";
 const DEFAULT_ADMIN_ACCESS_TOKEN: &str = "ADM-LMT-ROOT-7X91-FB28";
 const DEFAULT_PROMPT_CONFIG_KEY: &str = "default";
+const DEFAULT_CHAT_MODEL_ID: &str = "gpt-5.2-chat-latest";
+const SOSISKI_API_BASE_URL: &str = "https://sosiskibot.ru/api/v1";
 const PROFILE_ADJECTIVES: [&str; 12] = [
     "Neon",
     "Ghost",
@@ -108,8 +111,10 @@ pub struct AccountChat {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountSettings {
-    #[serde(default)]
-    pub gemini_api_key: String,
+    #[serde(default, alias = "geminiApiKey")]
+    pub api_key: String,
+    #[serde(default = "default_chat_model_id", alias = "selectedModel")]
+    pub selected_model_id: String,
     #[serde(default = "default_theme")]
     pub theme: String,
 }
@@ -257,6 +262,26 @@ pub struct AdminUserActionResponse {
 #[serde(rename_all = "camelCase")]
 pub struct BasicSuccessResponse {
     pub success: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiModelsRequest {
+    pub api_key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiChatCompletionsRequest {
+    pub api_key: String,
+    pub model: String,
+    pub messages: Vec<Value>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiProxyErrorResponse {
+    pub error: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -575,9 +600,14 @@ fn default_theme() -> String {
     "dark".to_string()
 }
 
+fn default_chat_model_id() -> String {
+    DEFAULT_CHAT_MODEL_ID.to_string()
+}
+
 fn default_account_settings() -> AccountSettings {
     AccountSettings {
-        gemini_api_key: String::new(),
+        api_key: String::new(),
+        selected_model_id: default_chat_model_id(),
         theme: default_theme(),
     }
 }
@@ -682,6 +712,14 @@ fn normalize_account_profile(profile: AccountProfile, token: Option<&str>) -> Ac
 }
 
 fn normalize_account_snapshot(mut snapshot: AccountSnapshot, token: Option<&str>) -> AccountSnapshot {
+    if snapshot.settings.api_key.trim().is_empty() {
+        snapshot.settings.api_key = String::new();
+    }
+
+    if snapshot.settings.selected_model_id.trim().is_empty() {
+        snapshot.settings.selected_model_id = default_chat_model_id();
+    }
+
     if snapshot.settings.theme.trim().is_empty() {
         snapshot.settings.theme = default_theme();
     }
@@ -765,6 +803,53 @@ fn extract_client_ip(request: &HttpRequest) -> Option<String> {
     }
 
     request.peer_addr().map(|addr| addr.ip().to_string())
+}
+
+fn build_sosiski_request(
+    data: &web::Data<AppState>,
+    method: reqwest::Method,
+    path: &str,
+    api_key: &str,
+) -> reqwest::RequestBuilder {
+    data.client
+        .request(method, format!("{}/{}", SOSISKI_API_BASE_URL, path.trim_start_matches('/')))
+        .bearer_auth(api_key.trim())
+}
+
+fn normalize_ai_proxy_error(payload: &str, status: reqwest::StatusCode, fallback: &str) -> String {
+    if let Ok(parsed) = serde_json::from_str::<Value>(payload) {
+        if let Some(text) = parsed
+            .get("error")
+            .and_then(|value| value.get("message").or(Some(value)))
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return text.to_string();
+        }
+
+        if let Some(text) = parsed
+            .get("message")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return text.to_string();
+        }
+    }
+
+    match status.as_u16() {
+        401 | 403 => "AI_PROVIDER_AUTH_FAILED".to_string(),
+        404 => "AI_PROVIDER_ROUTE_MISSING".to_string(),
+        429 => "AI_PROVIDER_RATE_LIMITED".to_string(),
+        500..=599 => "AI_PROVIDER_UNAVAILABLE".to_string(),
+        _ => fallback.to_string(),
+    }
+}
+
+fn reqwest_status_to_http(status: reqwest::StatusCode) -> actix_web::http::StatusCode {
+    actix_web::http::StatusCode::from_u16(status.as_u16())
+        .unwrap_or(actix_web::http::StatusCode::BAD_GATEWAY)
 }
 
 fn ensure_admin(request: &HttpRequest, data: &web::Data<AppState>) -> Result<(), HttpResponse> {
@@ -1031,6 +1116,90 @@ async fn validate_token(
         token: None,
         error: Some("VALIDATION_UNAVAILABLE".to_string()),
     })
+}
+
+async fn fetch_ai_models(body: web::Json<AiModelsRequest>, data: web::Data<AppState>) -> HttpResponse {
+    let api_key = body.api_key.trim();
+    if api_key.is_empty() {
+        return HttpResponse::BadRequest().json(AiProxyErrorResponse {
+            error: "AI_PROVIDER_AUTH_FAILED".to_string(),
+        });
+    }
+
+    match build_sosiski_request(&data, reqwest::Method::GET, "/models", api_key)
+        .send()
+        .await
+    {
+        Ok(response) => {
+            let status = response.status();
+            if status.is_success() {
+                match response.json::<Value>().await {
+                    Ok(payload) => HttpResponse::Ok().json(payload),
+                    Err(_) => HttpResponse::BadGateway().json(AiProxyErrorResponse {
+                        error: "AI_PROVIDER_MODELS_PARSE_FAILED".to_string(),
+                    }),
+                }
+            } else {
+                let payload = response.text().await.unwrap_or_default();
+                HttpResponse::build(reqwest_status_to_http(status)).json(AiProxyErrorResponse {
+                    error: normalize_ai_proxy_error(&payload, status, "AI_PROVIDER_MODELS_FAILED"),
+                })
+            }
+        }
+        Err(_) => HttpResponse::BadGateway().json(AiProxyErrorResponse {
+            error: "AI_PROVIDER_UNAVAILABLE".to_string(),
+        }),
+    }
+}
+
+async fn proxy_ai_chat_completions(
+    body: web::Json<AiChatCompletionsRequest>,
+    data: web::Data<AppState>,
+) -> HttpResponse {
+    let api_key = body.api_key.trim();
+    if api_key.is_empty() {
+        return HttpResponse::BadRequest().json(AiProxyErrorResponse {
+            error: "AI_PROVIDER_AUTH_FAILED".to_string(),
+        });
+    }
+
+    let model = body.model.trim();
+    if model.is_empty() || body.messages.is_empty() {
+        return HttpResponse::BadRequest().json(AiProxyErrorResponse {
+            error: "AI_PROVIDER_BAD_REQUEST".to_string(),
+        });
+    }
+
+    let payload = json!({
+        "model": model,
+        "messages": body.messages,
+    });
+
+    match build_sosiski_request(&data, reqwest::Method::POST, "/chat/completions", api_key)
+        .json(&payload)
+        .send()
+        .await
+    {
+        Ok(response) => {
+            let status = response.status();
+            if status.is_success() {
+                match response.json::<Value>().await {
+                    Ok(payload) => HttpResponse::Ok().json(payload),
+                    Err(_) => HttpResponse::BadGateway().json(AiProxyErrorResponse {
+                        error: "AI_PROVIDER_RESPONSE_PARSE_FAILED".to_string(),
+                    }),
+                }
+            } else {
+                let payload = response.text().await.unwrap_or_default();
+                HttpResponse::build(reqwest_status_to_http(status)).json(AiProxyErrorResponse {
+                    error: normalize_ai_proxy_error(&payload, status, "AI_PROVIDER_COMPLETION_FAILED"),
+                })
+            }
+        }
+        Err(_) => HttpResponse::BadGateway().json(AiProxyErrorResponse {
+            error: "AI_PROVIDER_UNAVAILABLE".to_string(),
+        }),
+    }
 }
 
 async fn get_public_prompt(data: web::Data<AppState>) -> HttpResponse {
@@ -1399,7 +1568,7 @@ async fn main() -> std::io::Result<()> {
         bot_internal_api_key,
         client: reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(5))
-            .timeout(Duration::from_secs(12))
+            .timeout(Duration::from_secs(90))
             .build()
             .expect("Failed to build HTTP client"),
         prompt_store: PromptStore::new(PathBuf::from(prompt_config_path), backend_database_url.clone()),
@@ -1425,6 +1594,8 @@ async fn main() -> std::io::Result<()> {
             .app_data(state.clone())
             .route("/api/health", web::get().to(health_check))
             .route("/api/validate", web::post().to(validate_token))
+            .route("/api/ai/models", web::post().to(fetch_ai_models))
+            .route("/api/ai/chat/completions", web::post().to(proxy_ai_chat_completions))
             .route("/api/prompt", web::get().to(get_public_prompt))
             .route("/api/account", web::get().to(get_account_snapshot))
             .route("/api/account", web::put().to(save_account_snapshot))

@@ -14,7 +14,8 @@ export interface Chat {
 }
 
 export interface UserSettings {
-  geminiApiKey: string;
+  apiKey: string;
+  selectedModelId: string;
   theme: 'dark' | 'light';
 }
 

@@ -1,4 +1,5 @@
 import { AccountProfile, Chat, UserSettings } from '../types';
+import { DEFAULT_CHAT_MODEL_ID } from './aiProvider';
 import { normalizeAccountProfile } from './profile';
 
 const LEGACY_CHATS_KEY = 'limitless_chats';
@@ -23,8 +24,19 @@ export interface AccountSnapshot {
   updatedAt?: string | null;
 }
 
+type StoredSettings = Partial<UserSettings> & {
+  geminiApiKey?: string;
+  selectedModel?: string;
+  model?: string;
+};
+
+type StoredAccountSnapshot = Omit<Partial<AccountSnapshot>, 'settings' | 'profile'> & {
+  settings?: StoredSettings | null;
+  profile?: Partial<AccountProfile> | null;
+};
+
 function createDefaultSettings(): UserSettings {
-  return { geminiApiKey: '', theme: 'dark' };
+  return { apiKey: '', selectedModelId: DEFAULT_CHAT_MODEL_ID, theme: 'dark' };
 }
 
 function createEmptyAccountSnapshot(token?: string | null): AccountSnapshot {
@@ -49,6 +61,38 @@ function safeJsonParse<T>(value: string | null, fallback: T): T {
   }
 }
 
+function normalizeSettings(settings?: StoredSettings | null): UserSettings {
+  const theme = settings?.theme === 'light' ? 'light' : 'dark';
+  const apiKeySource = typeof settings?.apiKey === 'string'
+    ? settings.apiKey
+    : typeof settings?.geminiApiKey === 'string'
+      ? settings.geminiApiKey
+      : '';
+  const selectedModelSource = typeof settings?.selectedModelId === 'string'
+    ? settings.selectedModelId
+    : typeof settings?.selectedModel === 'string'
+      ? settings.selectedModel
+      : typeof settings?.model === 'string'
+        ? settings.model
+        : '';
+
+  return {
+    apiKey: apiKeySource.trim(),
+    selectedModelId: selectedModelSource.trim() || DEFAULT_CHAT_MODEL_ID,
+    theme,
+  };
+}
+
+export function normalizeStoredAccountSnapshot(snapshot?: StoredAccountSnapshot | null, token?: string | null): AccountSnapshot {
+  return {
+    chats: Array.isArray(snapshot?.chats) ? snapshot.chats : [],
+    settings: normalizeSettings(snapshot?.settings as StoredSettings | undefined),
+    currentChatId: typeof snapshot?.currentChatId === 'string' ? snapshot.currentChatId : null,
+    profile: normalizeAccountProfile(snapshot?.profile as Partial<AccountProfile> | null, token),
+    updatedAt: typeof snapshot?.updatedAt === 'string' ? snapshot.updatedAt : null,
+  };
+}
+
 function getScopedKey(token: string, suffix: string): string {
   return `${ACCOUNT_SCOPE_PREFIX}:${token}:${suffix}`;
 }
@@ -62,10 +106,10 @@ function loadScopedChats(token: string): Chat[] {
 }
 
 function loadScopedSettings(token: string): UserSettings {
-  return safeJsonParse<UserSettings>(
+  return normalizeSettings(safeJsonParse<StoredSettings>(
     localStorage.getItem(getScopedKey(token, SETTINGS_SUFFIX)),
     createDefaultSettings(),
-  );
+  ));
 }
 
 function loadScopedCurrentChatId(token: string): string | null {
@@ -87,7 +131,7 @@ function saveScopedChats(token: string, chats: Chat[]): void {
 }
 
 function saveScopedSettings(token: string, settings: UserSettings): void {
-  localStorage.setItem(getScopedKey(token, SETTINGS_SUFFIX), JSON.stringify(settings));
+  localStorage.setItem(getScopedKey(token, SETTINGS_SUFFIX), JSON.stringify(normalizeSettings(settings)));
 }
 
 function saveScopedCurrentChatId(token: string, id: string | null): void {
@@ -113,24 +157,25 @@ function hasScopedAccountData(token: string): boolean {
 }
 
 function loadLegacyAccountSnapshot(): AccountSnapshot {
-  return {
-    chats: safeJsonParse<Chat[]>(localStorage.getItem(LEGACY_CHATS_KEY), []),
-    settings: safeJsonParse<UserSettings>(localStorage.getItem(LEGACY_SETTINGS_KEY), createDefaultSettings()),
-    currentChatId: localStorage.getItem(LEGACY_CURRENT_CHAT_KEY),
-    profile: normalizeAccountProfile(
-      safeJsonParse<Partial<AccountProfile> | null>(localStorage.getItem(LEGACY_PROFILE_KEY), null),
-      null,
-    ),
-    updatedAt: null,
-  };
+  return normalizeStoredAccountSnapshot(
+    {
+      chats: safeJsonParse<Chat[]>(localStorage.getItem(LEGACY_CHATS_KEY), []),
+      settings: safeJsonParse<StoredSettings>(localStorage.getItem(LEGACY_SETTINGS_KEY), createDefaultSettings()),
+      currentChatId: localStorage.getItem(LEGACY_CURRENT_CHAT_KEY),
+      profile: safeJsonParse<Partial<AccountProfile> | null>(localStorage.getItem(LEGACY_PROFILE_KEY), null),
+      updatedAt: null,
+    },
+    null,
+  );
 }
 
 function saveLegacyAccountSnapshot(snapshot: AccountSnapshot): void {
-  localStorage.setItem(LEGACY_CHATS_KEY, JSON.stringify(snapshot.chats));
-  localStorage.setItem(LEGACY_SETTINGS_KEY, JSON.stringify(snapshot.settings));
-  localStorage.setItem(LEGACY_PROFILE_KEY, JSON.stringify(snapshot.profile));
-  if (snapshot.currentChatId) {
-    localStorage.setItem(LEGACY_CURRENT_CHAT_KEY, snapshot.currentChatId);
+  const normalized = normalizeStoredAccountSnapshot(snapshot, null);
+  localStorage.setItem(LEGACY_CHATS_KEY, JSON.stringify(normalized.chats));
+  localStorage.setItem(LEGACY_SETTINGS_KEY, JSON.stringify(normalized.settings));
+  localStorage.setItem(LEGACY_PROFILE_KEY, JSON.stringify(normalized.profile));
+  if (normalized.currentChatId) {
+    localStorage.setItem(LEGACY_CURRENT_CHAT_KEY, normalized.currentChatId);
   } else {
     localStorage.removeItem(LEGACY_CURRENT_CHAT_KEY);
   }
@@ -147,7 +192,7 @@ export function hasMeaningfulAccountData(snapshot: AccountSnapshot): boolean {
   return (
     snapshot.chats.length > 0 ||
     Boolean(snapshot.currentChatId) ||
-    Boolean(snapshot.settings.geminiApiKey.trim()) ||
+    Boolean(snapshot.settings.apiKey.trim()) ||
     Boolean(snapshot.profile.avatarDataUrl)
   );
 }
@@ -155,33 +200,30 @@ export function hasMeaningfulAccountData(snapshot: AccountSnapshot): boolean {
 export function loadAccountSnapshot(token?: string | null): AccountSnapshot {
   const resolvedToken = resolveToken(token);
   if (!resolvedToken) {
-    const legacySnapshot = loadLegacyAccountSnapshot();
-    return {
-      ...legacySnapshot,
-      profile: normalizeAccountProfile(legacySnapshot.profile, null),
-    };
+    return loadLegacyAccountSnapshot();
   }
 
-  return {
+  return normalizeStoredAccountSnapshot({
     chats: loadScopedChats(resolvedToken),
     settings: loadScopedSettings(resolvedToken),
     currentChatId: loadScopedCurrentChatId(resolvedToken),
     profile: loadScopedProfile(resolvedToken),
     updatedAt: null,
-  };
+  }, resolvedToken);
 }
 
 export function saveAccountSnapshot(snapshot: AccountSnapshot, token?: string | null): void {
   const resolvedToken = resolveToken(token);
+  const normalized = normalizeStoredAccountSnapshot(snapshot, resolvedToken);
   if (!resolvedToken) {
-    saveLegacyAccountSnapshot(snapshot);
+    saveLegacyAccountSnapshot(normalized);
     return;
   }
 
-  saveScopedChats(resolvedToken, snapshot.chats);
-  saveScopedSettings(resolvedToken, snapshot.settings);
-  saveScopedCurrentChatId(resolvedToken, snapshot.currentChatId);
-  saveScopedProfile(resolvedToken, normalizeAccountProfile(snapshot.profile, resolvedToken));
+  saveScopedChats(resolvedToken, normalized.chats);
+  saveScopedSettings(resolvedToken, normalized.settings);
+  saveScopedCurrentChatId(resolvedToken, normalized.currentChatId);
+  saveScopedProfile(resolvedToken, normalizeAccountProfile(normalized.profile, resolvedToken));
 }
 
 export function migrateLegacyAccountData(token: string): AccountSnapshot {

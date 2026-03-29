@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AccountProfile, Chat, Message } from '../types';
 import { Sidebar } from '../components/Sidebar';
 import { SettingsModal } from '../components/SettingsModal';
@@ -14,18 +14,12 @@ import {
   hasMeaningfulAccountData,
   loadAccountSnapshot,
   loadAuthToken,
-  loadSettings,
   loadOrCreateDeviceId,
   migrateLegacyAccountData,
   saveAccountSnapshot,
 } from '../utils/storage';
-import {
-  DEFAULT_PROMPT_NAME,
-  fetchPromptConfig,
-  streamMessageToGemini,
-  sendMessageToGemini,
-} from '../utils/gemini';
-import { resolveInstantCommand } from '../utils/commands';
+import { DEFAULT_PROMPT_NAME, fetchPromptConfig } from '../utils/gemini';
+import { sendChatCompletion } from '../utils/aiProvider';
 import './ChatPage.css';
 
 interface ChatPageProps {
@@ -46,7 +40,6 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onGoHome }) => {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-  const [streamingText, setStreamingText] = useState('');
   const [error, setError] = useState('');
   const [promptName, setPromptName] = useState(DEFAULT_PROMPT_NAME);
   const [accountReady, setAccountReady] = useState(!authToken);
@@ -55,7 +48,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onGoHome }) => {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  const currentChat = chats.find((c) => c.id === currentChatId) || null;
+  const currentChat = chats.find((chat) => chat.id === currentChatId) || null;
 
   useEffect(() => {
     if (!authToken) {
@@ -109,7 +102,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onGoHome }) => {
 
     const nextSnapshot: AccountSnapshot = {
       chats,
-      settings: loadSettings(authToken),
+      settings: loadAccountSnapshot(authToken).settings,
       currentChatId,
       profile,
       updatedAt: null,
@@ -119,7 +112,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onGoHome }) => {
 
     const timeoutId = window.setTimeout(() => {
       saveRemoteAccountSnapshot(authToken, deviceId, nextSnapshot).catch(() => {
-        // Local cache stays intact even if the server is temporarily unavailable.
+        // Keep local state even if the server is temporarily unavailable.
       });
     }, 500);
 
@@ -129,14 +122,14 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onGoHome }) => {
   }, [accountReady, authToken, chats, currentChatId, deviceId, profile]);
 
   const scrollToBottom = useCallback(() => {
-    setTimeout(() => {
+    window.setTimeout(() => {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, 100);
   }, []);
 
   useEffect(() => {
     scrollToBottom();
-  }, [currentChat?.messages.length, streamingText, scrollToBottom]);
+  }, [currentChat?.messages.length, isGenerating, scrollToBottom]);
 
   useEffect(() => {
     let isMounted = true;
@@ -153,7 +146,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onGoHome }) => {
 
   const handleNewChat = useCallback(() => {
     const newChat = createNewChat();
-    setChats((prev) => [newChat, ...prev]);
+    setChats((previous) => [newChat, ...previous]);
     setCurrentChatId(newChat.id);
     setSidebarOpen(false);
     setInputValue('');
@@ -168,7 +161,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onGoHome }) => {
   }, []);
 
   const handleDeleteChat = useCallback((chatId: string) => {
-    setChats((prev) => prev.filter((c) => c.id !== chatId));
+    setChats((previous) => previous.filter((chat) => chat.id !== chatId));
     if (currentChatId === chatId) {
       setCurrentChatId(null);
     }
@@ -185,15 +178,9 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onGoHome }) => {
       return;
     }
 
-    const instantCommand = resolveInstantCommand({
-      input: content,
-      promptName,
-      profile,
-    });
-
-    const settings = loadSettings(authToken);
-    if (!instantCommand && !settings.geminiApiKey) {
-      setError('API ключ не настроен. Откройте настройки через кнопку внизу бокового меню.');
+    const settings = loadAccountSnapshot(authToken).settings;
+    if (!settings.apiKey) {
+      setError('API ключ не настроен. Откройте настройки и добавьте ключ SosiskiBot API.');
       return;
     }
 
@@ -205,7 +192,7 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onGoHome }) => {
       const newChat = createNewChat();
       chatToUse = newChat;
       chatId = newChat.id;
-      setChats((prev) => [newChat, ...prev]);
+      setChats((previous) => [newChat, ...previous]);
       setCurrentChatId(chatId);
     }
 
@@ -217,60 +204,26 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onGoHome }) => {
     };
 
     const updatedChat: Chat = {
-      ...chatToUse!,
-      messages: [...chatToUse!.messages, userMessage],
-      title: chatToUse!.messages.length === 0 ? generateChatTitle(content) : chatToUse!.title,
+      ...chatToUse,
+      messages: [...chatToUse.messages, userMessage],
+      title: chatToUse.messages.length === 0 ? generateChatTitle(content) : chatToUse.title,
       updatedAt: Date.now(),
     };
 
-    setChats((prev) => prev.map((c) => c.id === chatId ? updatedChat : c));
+    setChats((previous) => previous.map((chat) => (chat.id === chatId ? updatedChat : chat)));
     setInputValue('');
-
-    if (instantCommand) {
-      const assistantMessage: Message = {
-        id: generateId(),
-        role: 'assistant',
-        content: instantCommand.response,
-        timestamp: Date.now(),
-      };
-
-      setChats((prev) => prev.map((c) => {
-        if (c.id === chatId) {
-          return {
-            ...c,
-            messages: [...c.messages, assistantMessage],
-            updatedAt: Date.now(),
-          };
-        }
-        return c;
-      }));
-      return;
-    }
-
     setIsGenerating(true);
-    setStreamingText('');
 
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
 
     try {
-      const allMessages = [...updatedChat.messages];
-
-      let responseText = '';
-      try {
-        responseText = await streamMessageToGemini(
-          allMessages,
-          settings.geminiApiKey,
-          (text) => setStreamingText(text),
-          abortController.signal
-        );
-      } catch {
-        responseText = await sendMessageToGemini(
-          allMessages,
-          settings.geminiApiKey,
-          abortController.signal
-        );
-      }
+      const responseText = await sendChatCompletion(
+        updatedChat.messages,
+        settings.apiKey,
+        settings.selectedModelId,
+        abortController.signal,
+      );
 
       const assistantMessage: Message = {
         id: generateId(),
@@ -279,43 +232,47 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onGoHome }) => {
         timestamp: Date.now(),
       };
 
-      setChats((prev) => prev.map((c) => {
-        if (c.id === chatId) {
+      setChats((previous) =>
+        previous.map((chat) => {
+          if (chat.id !== chatId) {
+            return chat;
+          }
+
           return {
-            ...c,
-            messages: [...c.messages.filter((m) => m.id !== 'streaming'), assistantMessage],
+            ...chat,
+            messages: [...chat.messages, assistantMessage],
             updatedAt: Date.now(),
           };
-        }
-        return c;
-      }));
+        }),
+      );
     } catch (err: any) {
-      if (err.name !== 'AbortError') {
-        setError(err.message || 'Произошла ошибка при генерации ответа.');
+      if (err?.name !== 'AbortError') {
+        setError(err?.message || 'Не удалось получить ответ от модели.');
       }
     } finally {
       setIsGenerating(false);
-      setStreamingText('');
       abortControllerRef.current = null;
     }
-  }, [inputValue, isGenerating, currentChatId, currentChat, authToken, profile, promptName]);
+  }, [authToken, currentChat, currentChatId, inputValue, isGenerating]);
 
   const handleStopGeneration = useCallback(() => {
     abortControllerRef.current?.abort();
     setIsGenerating(false);
-    setStreamingText('');
   }, []);
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  }, [handleSendMessage]);
+  const handleKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        handleSendMessage();
+      }
+    },
+    [handleSendMessage],
+  );
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInputValue(e.target.value);
-    const target = e.target;
+  const handleInputChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInputValue(event.target.value);
+    const target = event.target;
     target.style.height = 'auto';
     target.style.height = `${Math.min(target.scrollHeight, 200)}px`;
   };
@@ -365,9 +322,9 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onGoHome }) => {
               <h2 className="empty-state-title">{promptName}</h2>
               <p className="empty-state-text">Начните диалог с нейросетью</p>
               <div className="empty-state-hints">
-                {['Что ты умеешь?', '.help', '.helpWL'].map((hint, i) => (
+                {['Что ты умеешь?', '.help', '.helpWL'].map((hint, index) => (
                   <button
-                    key={i}
+                    key={index}
                     className="hint-chip"
                     onClick={() => {
                       setInputValue(hint);
@@ -381,22 +338,10 @@ export const ChatPage: React.FC<ChatPageProps> = ({ onGoHome }) => {
             </div>
           ) : (
             <div className="messages-list">
-              {currentChat.messages.map((msg, index) => (
-                <MessageBubble key={msg.id} message={msg} index={index} />
+              {currentChat.messages.map((message, index) => (
+                <MessageBubble key={message.id} message={message} index={index} />
               ))}
-              {isGenerating && streamingText && (
-                <MessageBubble
-                  message={{
-                    id: 'streaming',
-                    role: 'assistant',
-                    content: streamingText,
-                    timestamp: Date.now(),
-                  }}
-                  index={currentChat.messages.length}
-                  isStreaming
-                />
-              )}
-              {isGenerating && !streamingText && <TypingIndicator />}
+              {isGenerating && <TypingIndicator />}
               <div ref={messagesEndRef} />
             </div>
           )}

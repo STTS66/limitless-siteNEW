@@ -1,14 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { AccountProfile } from '../types';
 import { saveRemoteAccountSnapshot } from '../utils/accountApi';
-import { normalizeAccountProfile } from '../utils/profile';
-import { ProfileAvatar } from './ProfileAvatar';
 import {
-  DEFAULT_PROMPT_NAME,
-  fetchPromptConfig,
-  GEMINI_MODEL_DESCRIPTION,
-  GEMINI_MODEL_LABEL,
-} from '../utils/gemini';
+  AI_PROVIDER_DOCS_URL,
+  AI_PROVIDER_NAME,
+  DEFAULT_CHAT_MODEL_ID,
+  fetchAvailableModels,
+  getFallbackModels,
+  type AIModelOption,
+} from '../utils/aiProvider';
+import { DEFAULT_PROMPT_NAME, fetchPromptConfig } from '../utils/gemini';
+import { normalizeAccountProfile } from '../utils/profile';
 import {
   loadAccountSnapshot,
   loadAuthToken,
@@ -17,6 +19,7 @@ import {
   saveAccountSnapshot,
   saveSettings,
 } from '../utils/storage';
+import { ProfileAvatar } from './ProfileAvatar';
 import './SettingsModal.css';
 
 interface SettingsModalProps {
@@ -27,6 +30,7 @@ interface SettingsModalProps {
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, onProfileSaved }) => {
   const [apiKey, setApiKey] = useState('');
+  const [selectedModelId, setSelectedModelId] = useState(DEFAULT_CHAT_MODEL_ID);
   const [promptName, setPromptName] = useState(DEFAULT_PROMPT_NAME);
   const [nickname, setNickname] = useState(profile.nickname);
   const [profileId, setProfileId] = useState(profile.profileId);
@@ -35,12 +39,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
   const [saved, setSaved] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [models, setModels] = useState<AIModelOption[]>(() => getFallbackModels());
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState('');
   const authToken = loadAuthToken();
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     const settings = loadSettings(authToken);
-    setApiKey(settings.geminiApiKey || '');
+    setApiKey(settings.apiKey || '');
+    setSelectedModelId(settings.selectedModelId || DEFAULT_CHAT_MODEL_ID);
     setNickname(profile.nickname);
     setProfileId(profile.profileId);
     setAvatarDataUrl(profile.avatarDataUrl);
@@ -58,6 +66,51 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
     };
   }, [authToken, profile]);
 
+  useEffect(() => {
+    let isMounted = true;
+    const controller = new AbortController();
+    const trimmedApiKey = apiKey.trim();
+
+    if (!trimmedApiKey) {
+      setModels(getFallbackModels());
+      setModelsError('');
+      return () => controller.abort();
+    }
+
+    setModelsLoading(true);
+    setModelsError('');
+
+    fetchAvailableModels(trimmedApiKey, controller.signal)
+      .then((nextModels) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setModels(nextModels);
+        if (!nextModels.some((model) => model.id === selectedModelId)) {
+          setSelectedModelId(nextModels[0]?.id || DEFAULT_CHAT_MODEL_ID);
+        }
+      })
+      .catch((error: Error) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setModels(getFallbackModels());
+        setModelsError(error.message);
+      })
+      .finally(() => {
+        if (isMounted) {
+          setModelsLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+      controller.abort();
+    };
+  }, [apiKey, selectedModelId]);
+
   const handleAvatarUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) {
@@ -65,7 +118,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
     }
 
     if (!file.type.startsWith('image/')) {
-      setSaveError('Можно загрузить только изображение для аватара.');
+      setSaveError('Можно загрузить только изображение для аватарки.');
       return;
     }
 
@@ -87,10 +140,38 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
     reader.readAsDataURL(file);
   };
 
+  const handleRefreshModels = async () => {
+    const trimmedApiKey = apiKey.trim();
+    if (!trimmedApiKey) {
+      setModels(getFallbackModels());
+      setModelsError('Сначала добавьте API ключ.');
+      return;
+    }
+
+    setModelsLoading(true);
+    setModelsError('');
+
+    try {
+      const nextModels = await fetchAvailableModels(trimmedApiKey);
+      setModels(nextModels);
+      if (!nextModels.some((model) => model.id === selectedModelId)) {
+        setSelectedModelId(nextModels[0]?.id || DEFAULT_CHAT_MODEL_ID);
+      }
+    } catch (error: any) {
+      setModelsError(error?.message || 'Не удалось обновить список моделей.');
+    } finally {
+      setModelsLoading(false);
+    }
+  };
+
   const handleSave = async () => {
     setSaveError('');
 
-    const nextSettings = { geminiApiKey: apiKey.trim(), theme: 'dark' as const };
+    const nextSettings = {
+      apiKey: apiKey.trim(),
+      selectedModelId: selectedModelId.trim() || DEFAULT_CHAT_MODEL_ID,
+      theme: 'dark' as const,
+    };
     const nextProfile = normalizeAccountProfile(
       {
         profileId,
@@ -132,6 +213,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
       onClose();
     }
   };
+
+  const selectedModel = models.find((model) => model.id === selectedModelId);
 
   return (
     <div className="settings-overlay" onClick={handleOverlayClick}>
@@ -219,7 +302,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
             </div>
 
             <p className="settings-hint">
-              У каждого профиля свой постоянный ID. Ник и аву можно менять в любой момент.
+              У каждого профиля свой постоянный ID. Ник и аватар можно менять в любой момент.
             </p>
           </div>
 
@@ -228,19 +311,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                 <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" />
               </svg>
-              API ключ Gemini
+              API ключ
             </label>
             <p className="settings-hint">
-              Получите ключ на{' '}
-              <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">
-                Google AI Studio
+              Подключение идет через{' '}
+              <a href={AI_PROVIDER_DOCS_URL} target="_blank" rel="noopener noreferrer">
+                {AI_PROVIDER_NAME}
               </a>
+              .
             </p>
             <div className="settings-input-group">
               <input
                 type="text"
                 className={`settings-input${showKey ? '' : ' settings-input-masked'}`}
-                placeholder="AIzaSy..."
+                placeholder="Bearer key..."
                 value={apiKey}
                 onChange={(event) => setApiKey(event.target.value)}
                 spellCheck={false}
@@ -248,7 +332,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
               />
               <button
                 className="toggle-visibility"
-                onClick={() => setShowKey(!showKey)}
+                onClick={() => setShowKey((current) => !current)}
                 type="button"
                 title={showKey ? 'Скрыть' : 'Показать'}
               >
@@ -274,12 +358,34 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
                 <path d="M2 17l10 5 10-5" />
                 <path d="M2 12l10 5 10-5" />
               </svg>
-              Модель
+              Версия
             </label>
-            <div className="model-info">
-              <span className="model-badge">{GEMINI_MODEL_LABEL}</span>
-              <span className="model-desc">{GEMINI_MODEL_DESCRIPTION}</span>
+            <div className="settings-model-row">
+              <div className="settings-select-group">
+                <select
+                  className="settings-select"
+                  value={selectedModelId}
+                  onChange={(event) => setSelectedModelId(event.target.value)}
+                  disabled={modelsLoading}
+                >
+                  {models.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button type="button" className="settings-avatar-button settings-model-refresh" onClick={handleRefreshModels}>
+                {modelsLoading ? 'Загрузка...' : 'Обновить'}
+              </button>
             </div>
+            {selectedModel && (
+              <div className="model-info">
+                <span className="model-badge">{selectedModel.label}</span>
+                <span className="model-desc">{selectedModel.description}</span>
+              </div>
+            )}
+            {modelsError && <p className="settings-hint settings-hint-error">{modelsError}</p>}
           </div>
 
           <div className="settings-section">
@@ -292,7 +398,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
             </label>
             <div className="system-prompt-info">
               <span className="prompt-badge">{promptName}</span>
-              <span className="prompt-desc">Кастомный prompt-режим активен</span>
+              <span className="prompt-desc">Промпт берется из админки и подставляется в каждый новый ответ.</span>
             </div>
           </div>
         </div>
