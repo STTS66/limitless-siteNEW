@@ -33,7 +33,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
   const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(profile.avatarDataUrl);
   const [avatarHue, setAvatarHue] = useState(profile.avatarHue);
   const [saved, setSaved] = useState(false);
-  const showKey = false;
+  const [showKey, setShowKey] = useState(false);
   const [saveError, setSaveError] = useState('');
   const authToken = loadAuthToken();
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
@@ -239,7 +239,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
             <div className="settings-input-group">
               <input
                 type="text"
-                className="settings-input settings-input-masked"
+                className={`settings-input${showKey ? '' : ' settings-input-masked'}`}
                 placeholder="AIzaSy..."
                 value={apiKey}
                 onChange={(event) => setApiKey(event.target.value)}
@@ -248,7 +248,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ onClose, profile, 
               />
               <button
                 className="toggle-visibility"
-                hidden
+                onClick={() => setShowKey(!showKey)}
                 type="button"
                 title={showKey ? 'Скрыть' : 'Показать'}
               >
