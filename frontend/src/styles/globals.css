@@ -98,6 +98,11 @@ select {
   font: inherit;
 }
 
+input,
+textarea {
+  caret-color: transparent;
+}
+
 input[type="password"]::-ms-reveal,
 input[type="password"]::-ms-clear {
   display: none;
