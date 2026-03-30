@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { motion, MotionValue, useMotionValue, useSpring, useTransform } from 'framer-motion';
 import { ProfileAvatar } from '../components/ProfileAvatar';
 import { AccountProfile } from '../types';
 import { getApiUrl } from '../utils/api';
@@ -15,12 +16,55 @@ interface LandingPageProps {
   profile?: AccountProfile | null;
 }
 
+interface DockNavItemProps {
+  label: string;
+  title?: string;
+  onClick: () => void;
+  mouseX: MotionValue<number>;
+  className?: string;
+}
+
+const DockNavItem: React.FC<DockNavItemProps> = ({ label, title, onClick, mouseX, className = '' }) => {
+  const itemRef = useRef<HTMLButtonElement | null>(null);
+
+  const distance = useTransform(mouseX, (value) => {
+    const bounds = itemRef.current?.getBoundingClientRect();
+    if (!bounds || !Number.isFinite(value)) {
+      return 999;
+    }
+
+    return value - (bounds.left + bounds.width / 2);
+  });
+
+  const scale = useSpring(
+    useTransform(distance, [-180, -90, 0, 90, 180], [1, 1.04, 1.16, 1.04, 1]),
+    { stiffness: 320, damping: 24, mass: 0.18 },
+  );
+  const y = useSpring(
+    useTransform(distance, [-180, -90, 0, 90, 180], [0, -2, -8, -2, 0]),
+    { stiffness: 320, damping: 24, mass: 0.18 },
+  );
+
+  return (
+    <motion.button
+      ref={itemRef}
+      type="button"
+      className={`landing-nav-link landing-nav-link-dock ${className}`.trim()}
+      onClick={onClick}
+      title={title}
+      style={{ scale, y }}
+    >
+      {label}
+    </motion.button>
+  );
+};
+
 export const LandingPage: React.FC<LandingPageProps> = ({
   onOpenAuth,
   onOpenAdmin,
   onOpenProfile,
-  navActionLabel = 'Войти',
-  primaryActionLabel = 'Войти по токену',
+  navActionLabel = 'Р’РѕР№С‚Рё',
+  primaryActionLabel = 'Р’РѕР№С‚Рё РїРѕ С‚РѕРєРµРЅСѓ',
   isAuthenticated = false,
   profile = null,
 }) => {
@@ -31,7 +75,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const [terminalMessageType, setTerminalMessageType] = useState<'idle' | 'error' | 'success'>('idle');
   const [isUnlocking, setIsUnlocking] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [isCompactNav, setIsCompactNav] = useState(() => window.innerWidth <= 900);
   const navCapsuleRef = useRef<HTMLElement | null>(null);
+  const navMouseX = useMotionValue(Number.NEGATIVE_INFINITY);
 
   const terminalLines = [
     { kind: 'muted', text: 'limitless@node:~$ status' },
@@ -57,6 +103,58 @@ export const LandingPage: React.FC<LandingPageProps> = ({
   const openAgreement = () => {
     window.location.href = agreementUrl;
   };
+
+  const navItems = useMemo(
+    () => [
+      {
+        key: 'agreement',
+        label: 'РЎРѕРіР»Р°С€РµРЅРёРµ',
+        title: 'РџРѕР»СЊР·РѕРІР°С‚РµР»СЊСЃРєРѕРµ СЃРѕРіР»Р°С€РµРЅРёРµ',
+        onClick: () => {
+          setMobileNavOpen(false);
+          openAgreement();
+        },
+      },
+      {
+        key: 'home',
+        label: 'Р“Р»Р°РІРЅР°СЏ',
+        onClick: () => {
+          setMobileNavOpen(false);
+          scrollToSection('home');
+        },
+      },
+      {
+        key: 'about',
+        label: 'Рћ РЅР°СЃ',
+        onClick: () => {
+          setMobileNavOpen(false);
+          scrollToSection('about');
+        },
+      },
+      {
+        key: 'support',
+        label: 'РџРѕРґРґРµСЂР¶РєР°',
+        onClick: () => {
+          setMobileNavOpen(false);
+          openSupportBot();
+        },
+      },
+      ...(isAuthenticated && profile && onOpenProfile
+        ? [
+            {
+              key: 'profile',
+              label: 'РџСЂРѕС„РёР»СЊ',
+              className: 'landing-nav-link-mobile-only',
+              onClick: () => {
+                setMobileNavOpen(false);
+                onOpenProfile();
+              },
+            },
+          ]
+        : []),
+    ],
+    [isAuthenticated, onOpenProfile, profile],
+  );
 
   useEffect(() => {
     if (!mobileNavOpen) {
@@ -88,6 +186,17 @@ export const LandingPage: React.FC<LandingPageProps> = ({
       window.removeEventListener('keydown', handleEscape);
     };
   }, [mobileNavOpen]);
+
+  useEffect(() => {
+    const handleResize = () => setIsCompactNav(window.innerWidth <= 900);
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
 
   const handleTerminalLogin = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -149,7 +258,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             type="button"
             className={`landing-mobile-menu-btn${mobileNavOpen ? ' landing-mobile-menu-btn-open' : ''}`}
             onClick={() => setMobileNavOpen((current) => !current)}
-            aria-label="Открыть разделы"
+            aria-label="РћС‚РєСЂС‹С‚СЊ СЂР°Р·РґРµР»С‹"
             aria-expanded={mobileNavOpen}
           >
             <span />
@@ -157,28 +266,37 @@ export const LandingPage: React.FC<LandingPageProps> = ({
             <span />
           </button>
 
-          <div className={`landing-nav-links${mobileNavOpen ? ' landing-nav-links-open' : ''}`}>
-            <button type="button" className="landing-nav-link" onClick={() => { setMobileNavOpen(false); openAgreement(); }} title="Пользовательское соглашение">
-              Соглашение
-            </button>
-            <button type="button" className="landing-nav-link" onClick={() => { setMobileNavOpen(false); scrollToSection('home'); }}>
-              Главная
-            </button>
-            <button type="button" className="landing-nav-link" onClick={() => { setMobileNavOpen(false); scrollToSection('about'); }}>
-              О нас
-            </button>
-            <button type="button" className="landing-nav-link" onClick={() => { setMobileNavOpen(false); openSupportBot(); }}>
-              Поддержка
-            </button>
-            {isAuthenticated && profile && onOpenProfile && (
-              <button type="button" className="landing-nav-link landing-nav-link-mobile-only" onClick={() => { setMobileNavOpen(false); onOpenProfile(); }}>
-                Профиль
-              </button>
+          <div
+            className={`landing-nav-links${mobileNavOpen ? ' landing-nav-links-open' : ''}${isCompactNav ? '' : ' landing-nav-links-dock'}`}
+            onMouseMove={isCompactNav ? undefined : (event) => navMouseX.set(event.clientX)}
+            onMouseLeave={isCompactNav ? undefined : () => navMouseX.set(Number.NEGATIVE_INFINITY)}
+          >
+            {navItems.map((item) =>
+              isCompactNav ? (
+                <button
+                  key={item.key}
+                  type="button"
+                  className={`landing-nav-link${item.className ? ` ${item.className}` : ''}`}
+                  onClick={item.onClick}
+                  title={item.title}
+                >
+                  {item.label}
+                </button>
+              ) : (
+                <DockNavItem
+                  key={item.key}
+                  label={item.label}
+                  title={item.title}
+                  onClick={item.onClick}
+                  mouseX={navMouseX}
+                  className={item.className}
+                />
+              ),
             )}
           </div>
 
           {isAuthenticated && profile ? (
-            <button type="button" className="landing-profile-chip landing-profile-chip-button" aria-label="Открыть профиль" onClick={onOpenProfile}>
+            <button type="button" className="landing-profile-chip landing-profile-chip-button" aria-label="РћС‚РєСЂС‹С‚СЊ РїСЂРѕС„РёР»СЊ" onClick={onOpenProfile}>
               <ProfileAvatar
                 className="landing-profile-avatar"
                 nickname={profile.nickname}
@@ -204,24 +322,24 @@ export const LandingPage: React.FC<LandingPageProps> = ({
           <div className="landing-hero-grid">
             <div className="landing-hero-copy">
               <div className="landing-hero-badge">AI Mode</div>
-              <h1 className="landing-title">Limitless - готовый ИИ-режим для быстрых и более прямых ответов</h1>
+              <h1 className="landing-title">Limitless - РіРѕС‚РѕРІС‹Р№ РР-СЂРµР¶РёРј РґР»СЏ Р±С‹СЃС‚СЂС‹С… Рё Р±РѕР»РµРµ РїСЂСЏРјС‹С… РѕС‚РІРµС‚РѕРІ</h1>
               <p className="landing-description">
-                Limitless - это преднастроенный режим работы ИИ для тех, кто хочет получить более собранный стиль ответа без долгой ручной
-                настройки. Купили доступ, активировали токен и сразу работаете в привычном интерфейсе.
+                Limitless - СЌС‚Рѕ РїСЂРµРґРЅР°СЃС‚СЂРѕРµРЅРЅС‹Р№ СЂРµР¶РёРј СЂР°Р±РѕС‚С‹ РР РґР»СЏ С‚РµС…, РєС‚Рѕ С…РѕС‡РµС‚ РїРѕР»СѓС‡РёС‚СЊ Р±РѕР»РµРµ СЃРѕР±СЂР°РЅРЅС‹Р№ СЃС‚РёР»СЊ РѕС‚РІРµС‚Р° Р±РµР· РґРѕР»РіРѕР№ СЂСѓС‡РЅРѕР№
+                РЅР°СЃС‚СЂРѕР№РєРё. РљСѓРїРёР»Рё РґРѕСЃС‚СѓРї, Р°РєС‚РёРІРёСЂРѕРІР°Р»Рё С‚РѕРєРµРЅ Рё СЃСЂР°Р·Сѓ СЂР°Р±РѕС‚Р°РµС‚Рµ РІ РїСЂРёРІС‹С‡РЅРѕРј РёРЅС‚РµСЂС„РµР№СЃРµ.
               </p>
 
               <div className="landing-section-buttons">
                 <button type="button" className="landing-pill-btn" onClick={openAgreement}>
-                  Соглашение
+                  РЎРѕРіР»Р°С€РµРЅРёРµ
                 </button>
                 <button type="button" className="landing-pill-btn" onClick={() => scrollToSection('home')}>
-                  Главная
+                  Р“Р»Р°РІРЅР°СЏ
                 </button>
                 <button type="button" className="landing-pill-btn" onClick={() => scrollToSection('about')}>
-                  О нас
+                  Рћ РЅР°СЃ
                 </button>
                 <button type="button" className="landing-pill-btn" onClick={openSupportBot}>
-                  Поддержка
+                  РџРѕРґРґРµСЂР¶РєР°
                 </button>
               </div>
 
@@ -235,7 +353,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  Купить доступ в Telegram
+                  РљСѓРїРёС‚СЊ РґРѕСЃС‚СѓРї РІ Telegram
                 </a>
               </div>
             </div>
@@ -319,70 +437,70 @@ export const LandingPage: React.FC<LandingPageProps> = ({
 
         <section id="about" className="landing-section">
           <div className="landing-section-heading">
-            <span className="landing-section-kicker">О нас</span>
-            <h2>Что такое Limitless и как устроен доступ</h2>
+            <span className="landing-section-kicker">Рћ РЅР°СЃ</span>
+            <h2>Р§С‚Рѕ С‚Р°РєРѕРµ Limitless Рё РєР°Рє СѓСЃС‚СЂРѕРµРЅ РґРѕСЃС‚СѓРї</h2>
           </div>
 
           <div className="landing-grid">
             <article className="landing-card">
-              <h3>Другой стиль ответов</h3>
+              <h3>Р”СЂСѓРіРѕР№ СЃС‚РёР»СЊ РѕС‚РІРµС‚РѕРІ</h3>
               <p>
-                Limitless меняет подачу: ответы ощущаются более быстрыми, прямыми и цельными. Это не отдельная модель, а готовый режим
-                работы поверх OpenAI-совместимого API.
+                Limitless РјРµРЅСЏРµС‚ РїРѕРґР°С‡Сѓ: РѕС‚РІРµС‚С‹ РѕС‰СѓС‰Р°СЋС‚СЃСЏ Р±РѕР»РµРµ Р±С‹СЃС‚СЂС‹РјРё, РїСЂСЏРјС‹РјРё Рё С†РµР»СЊРЅС‹РјРё. Р­С‚Рѕ РЅРµ РѕС‚РґРµР»СЊРЅР°СЏ РјРѕРґРµР»СЊ, Р° РіРѕС‚РѕРІС‹Р№ СЂРµР¶РёРј
+                СЂР°Р±РѕС‚С‹ РїРѕРІРµСЂС… OpenAI-СЃРѕРІРјРµСЃС‚РёРјРѕРіРѕ API.
               </p>
             </article>
 
             <article className="landing-card">
-              <h3>Один доступ без путаницы</h3>
-              <p>После покупки у вас появляется один основной токен. Он закрепляется за вашим доступом и дальше только продлевается.</p>
+              <h3>РћРґРёРЅ РґРѕСЃС‚СѓРї Р±РµР· РїСѓС‚Р°РЅРёС†С‹</h3>
+              <p>РџРѕСЃР»Рµ РїРѕРєСѓРїРєРё Сѓ РІР°СЃ РїРѕСЏРІР»СЏРµС‚СЃСЏ РѕРґРёРЅ РѕСЃРЅРѕРІРЅРѕР№ С‚РѕРєРµРЅ. РћРЅ Р·Р°РєСЂРµРїР»СЏРµС‚СЃСЏ Р·Р° РІР°С€РёРј РґРѕСЃС‚СѓРїРѕРј Рё РґР°Р»СЊС€Рµ С‚РѕР»СЊРєРѕ РїСЂРѕРґР»РµРІР°РµС‚СЃСЏ.</p>
             </article>
 
             <article className="landing-card">
-              <h3>Запуск за пару минут</h3>
-              <p>Не нужно собирать сложные настройки вручную: открываете сайт, вводите токен и работаете в уже готовом режиме.</p>
+              <h3>Р—Р°РїСѓСЃРє Р·Р° РїР°СЂСѓ РјРёРЅСѓС‚</h3>
+              <p>РќРµ РЅСѓР¶РЅРѕ СЃРѕР±РёСЂР°С‚СЊ СЃР»РѕР¶РЅС‹Рµ РЅР°СЃС‚СЂРѕР№РєРё РІСЂСѓС‡РЅСѓСЋ: РѕС‚РєСЂС‹РІР°РµС‚Рµ СЃР°Р№С‚, РІРІРѕРґРёС‚Рµ С‚РѕРєРµРЅ Рё СЂР°Р±РѕС‚Р°РµС‚Рµ РІ СѓР¶Рµ РіРѕС‚РѕРІРѕРј СЂРµР¶РёРјРµ.</p>
             </article>
           </div>
         </section>
 
         <section id="support" className="landing-section">
           <div className="landing-section-heading">
-            <span className="landing-section-kicker">Поддержка</span>
-            <h2>Поддержка по доступу, оплате и запуску</h2>
+            <span className="landing-section-kicker">РџРѕРґРґРµСЂР¶РєР°</span>
+            <h2>РџРѕРґРґРµСЂР¶РєР° РїРѕ РґРѕСЃС‚СѓРїСѓ, РѕРїР»Р°С‚Рµ Рё Р·Р°РїСѓСЃРєСѓ</h2>
           </div>
 
           <div className="landing-grid">
             <article className="landing-card">
-              <h3>Помощь с активацией</h3>
-              <p>Если токен не пришел, не активируется или возник вопрос со входом, поддержка помогает быстро решить это без лишней переписки.</p>
+              <h3>РџРѕРјРѕС‰СЊ СЃ Р°РєС‚РёРІР°С†РёРµР№</h3>
+              <p>Р•СЃР»Рё С‚РѕРєРµРЅ РЅРµ РїСЂРёС€РµР», РЅРµ Р°РєС‚РёРІРёСЂСѓРµС‚СЃСЏ РёР»Рё РІРѕР·РЅРёРє РІРѕРїСЂРѕСЃ СЃРѕ РІС…РѕРґРѕРј, РїРѕРґРґРµСЂР¶РєР° РїРѕРјРѕРіР°РµС‚ Р±С‹СЃС‚СЂРѕ СЂРµС€РёС‚СЊ СЌС‚Рѕ Р±РµР· Р»РёС€РЅРµР№ РїРµСЂРµРїРёСЃРєРё.</p>
             </article>
 
             <article className="landing-card">
-              <h3>Продление и доступ</h3>
-              <p>Через поддержку можно уточнить статус доступа, продление и любые вопросы, связанные с подпиской.</p>
+              <h3>РџСЂРѕРґР»РµРЅРёРµ Рё РґРѕСЃС‚СѓРї</h3>
+              <p>Р§РµСЂРµР· РїРѕРґРґРµСЂР¶РєСѓ РјРѕР¶РЅРѕ СѓС‚РѕС‡РЅРёС‚СЊ СЃС‚Р°С‚СѓСЃ РґРѕСЃС‚СѓРїР°, РїСЂРѕРґР»РµРЅРёРµ Рё Р»СЋР±С‹Рµ РІРѕРїСЂРѕСЃС‹, СЃРІСЏР·Р°РЅРЅС‹Рµ СЃ РїРѕРґРїРёСЃРєРѕР№.</p>
             </article>
 
             <article className="landing-card">
-              <h3>Связь в Telegram</h3>
-              <p>Поддержка находится в Telegram, поэтому написать можно в любой момент и получить ответ там же, где вам удобно.</p>
+              <h3>РЎРІСЏР·СЊ РІ Telegram</h3>
+              <p>РџРѕРґРґРµСЂР¶РєР° РЅР°С…РѕРґРёС‚СЃСЏ РІ Telegram, РїРѕСЌС‚РѕРјСѓ РЅР°РїРёСЃР°С‚СЊ РјРѕР¶РЅРѕ РІ Р»СЋР±РѕР№ РјРѕРјРµРЅС‚ Рё РїРѕР»СѓС‡РёС‚СЊ РѕС‚РІРµС‚ С‚Р°Рј Р¶Рµ, РіРґРµ РІР°Рј СѓРґРѕР±РЅРѕ.</p>
             </article>
           </div>
 
           <div className="landing-support-note">
-            Если у вас вопрос по оплате, токену или доступу к Limitless, просто напишите в Telegram-поддержку.
+            Р•СЃР»Рё Сѓ РІР°СЃ РІРѕРїСЂРѕСЃ РїРѕ РѕРїР»Р°С‚Рµ, С‚РѕРєРµРЅСѓ РёР»Рё РґРѕСЃС‚СѓРїСѓ Рє Limitless, РїСЂРѕСЃС‚Рѕ РЅР°РїРёС€РёС‚Рµ РІ Telegram-РїРѕРґРґРµСЂР¶РєСѓ.
             <button type="button" className="landing-support-btn" onClick={openSupportBot}>
-              Открыть помощь в Telegram
+              РћС‚РєСЂС‹С‚СЊ РїРѕРјРѕС‰СЊ РІ Telegram
             </button>
           </div>
         </section>
 
         <footer className="landing-footer">
-          <span className="landing-footer-copy">© 2026 Limitless</span>
+          <span className="landing-footer-copy">В© 2026 Limitless</span>
           <div className="landing-footer-links">
             <a href="/terms" className="landing-footer-link">
-              Пользовательское соглашение
+              РџРѕР»СЊР·РѕРІР°С‚РµР»СЊСЃРєРѕРµ СЃРѕРіР»Р°С€РµРЅРёРµ
             </a>
             <a href={supportBotUrl} className="landing-footer-link" target="_blank" rel="noopener noreferrer">
-              Поддержка
+              РџРѕРґРґРµСЂР¶РєР°
             </a>
           </div>
         </footer>
