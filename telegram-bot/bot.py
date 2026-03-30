@@ -1235,6 +1235,48 @@ def set_admin_ban_state(connection: sqlite3.Connection, token: str, banned: bool
     return get_token_by_value(connection, token)
 
 
+def unbind_admin_token(connection: sqlite3.Connection, token: str):
+    token_data = get_token_by_value(connection, token)
+    if not token_data:
+        return None
+
+    connection.execute(
+        """
+        UPDATE auth_tokens
+        SET activated_device_id = NULL,
+            activated_ip = NULL,
+            activated_at = NULL
+        WHERE token = ?
+        """,
+        (token,),
+    )
+    connection.commit()
+    return get_token_by_value(connection, token)
+
+
+def extend_admin_token_by_days(connection: sqlite3.Connection, token: str, days: int):
+    token_data = get_token_by_value(connection, token)
+    if not token_data:
+        return None
+
+    if token_data.get("subscription_plan") == "lifetime" and token_data.get("subscription_status") == "active":
+        return token_data
+
+    new_expiry = calculate_extended_expiry(token_data.get("subscription_expires_at"), days)
+    connection.execute(
+        """
+        UPDATE auth_tokens
+        SET subscription_plan = 'manual_extend',
+            subscription_status = 'active',
+            subscription_expires_at = ?
+        WHERE token = ?
+        """,
+        (new_expiry, token),
+    )
+    connection.commit()
+    return get_token_by_value(connection, token)
+
+
 def record_star_payment(
     connection: sqlite3.Connection,
     telegram_payment_charge_id: str,
@@ -2460,6 +2502,64 @@ def admin_unban_user_api():
     with db_lock:
         with get_connection() as connection:
             updated_user = set_admin_ban_state(connection, token, False)
+
+    if not updated_user:
+        return jsonify({"success": False, "user": None, "error": "TOKEN_NOT_FOUND"}), 404
+
+    return jsonify({
+        "success": True,
+        "user": format_admin_user_record(updated_user),
+        "error": None,
+    })
+
+
+@app.route("/api/admin/tokens/unbind", methods=["POST"])
+def admin_unbind_token_api():
+    if not is_internal_api_request_authorized():
+        return unauthorized_internal_api_response()
+
+    data = request.get_json(silent=True) or {}
+    token = str(data.get("token", "")).strip()
+    if not token:
+        return jsonify({"success": False, "user": None, "error": "TOKEN_REQUIRED"}), 400
+
+    with db_lock:
+        with get_connection() as connection:
+            updated_user = unbind_admin_token(connection, token)
+
+    if not updated_user:
+        return jsonify({"success": False, "user": None, "error": "TOKEN_NOT_FOUND"}), 404
+
+    return jsonify({
+        "success": True,
+        "user": format_admin_user_record(updated_user),
+        "error": None,
+    })
+
+
+@app.route("/api/admin/tokens/extend", methods=["POST"])
+def admin_extend_token_api():
+    if not is_internal_api_request_authorized():
+        return unauthorized_internal_api_response()
+
+    data = request.get_json(silent=True) or {}
+    token = str(data.get("token", "")).strip()
+    days = data.get("days", 0)
+
+    if not token:
+        return jsonify({"success": False, "user": None, "error": "TOKEN_REQUIRED"}), 400
+
+    try:
+        days = int(days)
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "user": None, "error": "TOKEN_DAYS_INVALID"}), 400
+
+    if days <= 0 or days > 3650:
+        return jsonify({"success": False, "user": None, "error": "TOKEN_DAYS_INVALID"}), 400
+
+    with db_lock:
+        with get_connection() as connection:
+            updated_user = extend_admin_token_by_days(connection, token, days)
 
     if not updated_user:
         return jsonify({"success": False, "user": None, "error": "TOKEN_NOT_FOUND"}), 404

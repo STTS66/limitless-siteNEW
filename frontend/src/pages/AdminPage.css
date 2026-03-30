@@ -262,6 +262,13 @@
   color: #fecaca;
 }
 
+.admin-button-small {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 12px;
+  font-size: 13px;
+}
+
 .admin-dashboard {
   gap: 24px;
 }
@@ -480,6 +487,13 @@
   word-break: break-all;
 }
 
+.admin-token-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .admin-user-badges {
   display: flex;
   align-items: center;
@@ -559,6 +573,21 @@
 .admin-user-actions {
   display: flex;
   justify-content: flex-end;
+}
+
+.admin-token-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-token-actions-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .admin-empty-state {

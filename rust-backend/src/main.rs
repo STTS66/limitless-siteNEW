@@ -216,6 +216,13 @@ pub struct AdminUserActionRequest {
     pub token: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminTokenExtendRequest {
+    pub token: String,
+    pub days: i32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdminUserRecord {
@@ -229,6 +236,7 @@ pub struct AdminUserRecord {
     pub profile_created_at: Option<String>,
     pub created_at: Option<String>,
     pub activated_device_id: Option<String>,
+    pub activated_ip: Option<String>,
     pub activated_at: Option<String>,
     pub subscription_plan: Option<String>,
     pub subscription_status: Option<String>,
@@ -1070,10 +1078,10 @@ async fn send_admin_bridge_get_users(
     Ok(last_response.expect("admin bridge retries should store last response"))
 }
 
-async fn send_admin_bridge_user_action(
+async fn send_admin_bridge_json_action<T: Serialize>(
     data: &web::Data<AppState>,
     path: &str,
-    body: &AdminUserActionRequest,
+    body: &T,
 ) -> Result<reqwest::Response, reqwest::Error> {
     let mut last_response: Option<reqwest::Response> = None;
 
@@ -1501,7 +1509,7 @@ async fn admin_ban_user(
         return response;
     }
 
-    let response = send_admin_bridge_user_action(&data, "/api/admin/users/ban", &body.0).await;
+    let response = send_admin_bridge_json_action(&data, "/api/admin/users/ban", &body.0).await;
 
     match response {
         Ok(resp) => {
@@ -1544,7 +1552,7 @@ async fn admin_unban_user(
         return response;
     }
 
-    let response = send_admin_bridge_user_action(&data, "/api/admin/users/unban", &body.0).await;
+    let response = send_admin_bridge_json_action(&data, "/api/admin/users/unban", &body.0).await;
 
     match response {
         Ok(resp) => {
@@ -1574,6 +1582,102 @@ async fn admin_unban_user(
             success: false,
             user: None,
             error: Some("ADMIN_USER_ACTION_UNAVAILABLE".to_string()),
+        }),
+    }
+}
+
+async fn admin_unbind_token(
+    request: HttpRequest,
+    body: web::Json<AdminUserActionRequest>,
+    data: web::Data<AppState>,
+) -> HttpResponse {
+    if let Err(response) = ensure_admin(&request, &data) {
+        return response;
+    }
+
+    let response = send_admin_bridge_json_action(&data, "/api/admin/tokens/unbind", &body.0).await;
+
+    match response {
+        Ok(resp) => {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+
+            match serde_json::from_str::<AdminUserActionResponse>(&body) {
+                Ok(payload) if status.is_success() => {
+                    HttpResponse::Ok().json(enrich_admin_user_action_response(&data.account_store, payload))
+                }
+                Ok(payload) => HttpResponse::BadGateway().json(payload),
+                Err(_) => {
+                    let bridge_error = serde_json::from_str::<serde_json::Value>(&body)
+                        .ok()
+                        .and_then(|value| value.get("error").and_then(|error| error.as_str()).map(str::to_owned))
+                        .unwrap_or_else(|| match status.as_u16() {
+                            401 => "ADMIN_BRIDGE_UNAUTHORIZED".to_string(),
+                            404 => "ADMIN_TOKENS_ROUTE_MISSING".to_string(),
+                            502 | 503 | 504 => "ADMIN_TOKEN_ACTION_UNAVAILABLE".to_string(),
+                            _ => "ADMIN_TOKEN_ACTION_PARSE_FAILED".to_string(),
+                        });
+
+                    HttpResponse::BadGateway().json(AdminUserActionResponse {
+                        success: false,
+                        user: None,
+                        error: Some(bridge_error),
+                    })
+                }
+            }
+        }
+        Err(_) => HttpResponse::BadGateway().json(AdminUserActionResponse {
+            success: false,
+            user: None,
+            error: Some("ADMIN_TOKEN_ACTION_UNAVAILABLE".to_string()),
+        }),
+    }
+}
+
+async fn admin_extend_token(
+    request: HttpRequest,
+    body: web::Json<AdminTokenExtendRequest>,
+    data: web::Data<AppState>,
+) -> HttpResponse {
+    if let Err(response) = ensure_admin(&request, &data) {
+        return response;
+    }
+
+    let response = send_admin_bridge_json_action(&data, "/api/admin/tokens/extend", &body.0).await;
+
+    match response {
+        Ok(resp) => {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+
+            match serde_json::from_str::<AdminUserActionResponse>(&body) {
+                Ok(payload) if status.is_success() => {
+                    HttpResponse::Ok().json(enrich_admin_user_action_response(&data.account_store, payload))
+                }
+                Ok(payload) => HttpResponse::BadGateway().json(payload),
+                Err(_) => {
+                    let bridge_error = serde_json::from_str::<serde_json::Value>(&body)
+                        .ok()
+                        .and_then(|value| value.get("error").and_then(|error| error.as_str()).map(str::to_owned))
+                        .unwrap_or_else(|| match status.as_u16() {
+                            401 => "ADMIN_BRIDGE_UNAUTHORIZED".to_string(),
+                            404 => "ADMIN_TOKENS_ROUTE_MISSING".to_string(),
+                            502 | 503 | 504 => "ADMIN_TOKEN_ACTION_UNAVAILABLE".to_string(),
+                            _ => "ADMIN_TOKEN_ACTION_PARSE_FAILED".to_string(),
+                        });
+
+                    HttpResponse::BadGateway().json(AdminUserActionResponse {
+                        success: false,
+                        user: None,
+                        error: Some(bridge_error),
+                    })
+                }
+            }
+        }
+        Err(_) => HttpResponse::BadGateway().json(AdminUserActionResponse {
+            success: false,
+            user: None,
+            error: Some("ADMIN_TOKEN_ACTION_UNAVAILABLE".to_string()),
         }),
     }
 }
@@ -1677,6 +1781,8 @@ async fn main() -> std::io::Result<()> {
             .route("/api/admin/users", web::get().to(admin_list_users))
             .route("/api/admin/users/ban", web::post().to(admin_ban_user))
             .route("/api/admin/users/unban", web::post().to(admin_unban_user))
+            .route("/api/admin/tokens/unbind", web::post().to(admin_unbind_token))
+            .route("/api/admin/tokens/extend", web::post().to(admin_extend_token))
     })
     .bind(("0.0.0.0", port))?
     .run()

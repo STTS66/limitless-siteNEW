@@ -32,6 +32,7 @@ interface AdminUserRecord {
   profileCreatedAt?: string | null;
   createdAt?: string | null;
   activatedDeviceId?: string | null;
+  activatedIp?: string | null;
   activatedAt?: string | null;
   subscriptionPlan?: string | null;
   subscriptionStatus?: string | null;
@@ -55,7 +56,8 @@ interface AdminUserActionResponse {
   error?: string;
 }
 
-type AdminSection = 'prompt' | 'users';
+type AdminSection = 'prompt' | 'users' | 'tokens';
+type AdminTokenQuickExtend = 30 | 90 | 365;
 
 function createDefaultPromptConfig(): PromptConfig {
   return {
@@ -71,6 +73,15 @@ function createEmptySummary(): AdminUsersSummary {
     activeUsers: 0,
     bannedUsers: 0,
     boundDevices: 0,
+  };
+}
+
+function createSummaryFromUsers(users: AdminUserRecord[]): AdminUsersSummary {
+  return {
+    totalUsers: users.length,
+    activeUsers: users.filter((user) => !user.isBanned && user.subscriptionStatus === 'active').length,
+    bannedUsers: users.filter((user) => user.isBanned).length,
+    boundDevices: users.filter((user) => user.isBound).length,
   };
 }
 
@@ -150,6 +161,14 @@ function resolveAdminError(error?: string): string {
   }
 
   switch (error) {
+    case 'ADMIN_TOKENS_ROUTE_MISSING':
+      return 'Telegram bot API запущен на старой версии и еще не знает маршруты управления токенами.';
+    case 'ADMIN_TOKEN_ACTION_PARSE_FAILED':
+      return 'Сервис токенов вернул неожиданный ответ. Обычно это значит, что backend и Telegram bot работают на разных версиях.';
+    case 'ADMIN_TOKEN_ACTION_UNAVAILABLE':
+      return 'Сервис управления токенами временно недоступен. Проверьте backend и Telegram bot API.';
+    case 'TOKEN_DAYS_INVALID':
+      return 'Укажите корректное число дней для продления токена.';
     case 'ADMIN_USERS_PARSE_FAILED':
       return 'Сервис пользователей вернул неожиданный ответ. Обычно это значит, что backend и Telegram bot работают на разных версиях.';
     case 'ADMIN_USERS_UNAVAILABLE':
@@ -186,12 +205,15 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
   const [users, setUsers] = useState<AdminUserRecord[]>([]);
   const [summary, setSummary] = useState<AdminUsersSummary>(createEmptySummary());
   const [userSearch, setUserSearch] = useState('');
+  const [tokenSearch, setTokenSearch] = useState('');
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [isLoadingPrompt, setIsLoadingPrompt] = useState(false);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [userActionToken, setUserActionToken] = useState<string | null>(null);
+  const [tokenActionToken, setTokenActionToken] = useState<string | null>(null);
+  const [copiedToken, setCopiedToken] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [promptRenderKey, setPromptRenderKey] = useState(0);
@@ -231,6 +253,37 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
     });
   }, [userSearch, users]);
 
+  const visibleTokens = useMemo(() => {
+    const query = tokenSearch.trim().toLowerCase();
+    if (!query) {
+      return users;
+    }
+
+    return users.filter((user) => {
+      const haystack = [
+        user.token,
+        user.chatId?.toString(),
+        user.username,
+        user.profileId,
+        user.profileNickname,
+        user.activatedIp,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      return haystack.includes(query);
+    });
+  }, [tokenSearch, users]);
+
+  const tokenStats = useMemo(() => ({
+    totalTokens: users.length,
+    activeTokens: users.filter((user) => !user.isBanned && user.subscriptionStatus === 'active').length,
+    revokedTokens: users.filter((user) => user.isBanned).length,
+    boundTokens: users.filter((user) => user.isBound).length,
+    lifetimeTokens: users.filter((user) => user.subscriptionPlan === 'lifetime').length,
+  }), [users]);
+
   const applyPromptConfig = useCallback((config?: Partial<PromptConfig>) => {
     const merged = {
       ...createDefaultPromptConfig(),
@@ -256,6 +309,16 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
 
     return () => window.cancelAnimationFrame(frameId);
   }, [activeSection, promptRenderKey]);
+
+  const applyUpdatedUser = useCallback((updatedUser: AdminUserRecord) => {
+    setUsers((previousUsers) => {
+      const nextUsers = previousUsers.map((item) => (
+        item.token === updatedUser.token ? updatedUser : item
+      ));
+      setSummary(createSummaryFromUsers(nextUsers));
+      return nextUsers;
+    });
+  }, []);
 
   const handleUnauthorized = useCallback(() => {
     clearAdminAuthToken();
@@ -321,7 +384,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
       }
 
       setUsers(data.users ?? []);
-      setSummary(data.summary ?? createEmptySummary());
+      setSummary(data.summary ?? createSummaryFromUsers(data.users ?? []));
       return true;
     } catch (requestError: any) {
       setError(requestError.message || 'Не удалось загрузить пользователей.');
@@ -484,7 +547,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
 
     setError('');
     setSuccessMessage('');
-    await loadAdminUsers(authToken, userSearch);
+    await loadAdminUsers(authToken, '');
   };
 
   const handleRefreshUsers = async () => {
@@ -494,7 +557,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
 
     setError('');
     setSuccessMessage('');
-    await loadAdminUsers(authToken, userSearch);
+    await loadAdminUsers(authToken, '');
   };
 
   const handleUserAction = async (user: AdminUserRecord, action: 'ban' | 'unban') => {
@@ -523,16 +586,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
         throw new Error(resolveAdminError(data.error));
       }
 
-      setUsers((previousUsers) => previousUsers.map((item) => (
-        item.token === data.user?.token ? data.user : item
-      )));
-      setSummary((previousSummary) => {
-        const delta = action === 'ban' ? 1 : -1;
-        return {
-          ...previousSummary,
-          bannedUsers: Math.max(0, previousSummary.bannedUsers + delta),
-        };
-      });
+      applyUpdatedUser(data.user);
       setSuccessMessage(
         action === 'ban'
           ? `Пользователь ${getDisplayProfileName(user)} забанен.`
@@ -542,6 +596,110 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
       setError(requestError.message || 'Не удалось обновить пользователя.');
     } finally {
       setUserActionToken(null);
+    }
+  };
+
+  const handleTokensSearchSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!authToken) {
+      return;
+    }
+
+    setError('');
+    setSuccessMessage('');
+    await loadAdminUsers(authToken, '');
+  };
+
+  const handleRefreshTokens = async () => {
+    if (!authToken) {
+      return;
+    }
+
+    setError('');
+    setSuccessMessage('');
+    await loadAdminUsers(authToken, '');
+  };
+
+  const handleCopyToken = async (tokenValue: string) => {
+    try {
+      await navigator.clipboard.writeText(tokenValue);
+      setCopiedToken(tokenValue);
+      setSuccessMessage('Токен скопирован.');
+      window.setTimeout(() => {
+        setCopiedToken((current) => (current === tokenValue ? null : current));
+      }, 1800);
+    } catch {
+      setError('Не удалось скопировать токен. Проверьте доступ к буферу обмена.');
+    }
+  };
+
+  const handleTokenUnbind = async (user: AdminUserRecord) => {
+    if (!authToken) {
+      return;
+    }
+
+    setTokenActionToken(user.token);
+    setError('');
+    setSuccessMessage('');
+
+    try {
+      const response = await fetch(getApiUrl('/api/admin/tokens/unbind'), {
+        method: 'POST',
+        headers: getAdminHeaders(authToken),
+        body: JSON.stringify({ token: user.token }),
+      });
+
+      if (response.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+
+      const data: AdminUserActionResponse = await response.json().catch(() => ({ success: false }));
+      if (!response.ok || !data.success || !data.user) {
+        throw new Error(resolveAdminError(data.error));
+      }
+
+      applyUpdatedUser(data.user);
+      setSuccessMessage(`Токен ${user.token} отвязан от текущего IP.`);
+    } catch (requestError: any) {
+      setError(requestError.message || 'Не удалось отвязать токен.');
+    } finally {
+      setTokenActionToken(null);
+    }
+  };
+
+  const handleTokenExtend = async (user: AdminUserRecord, days: AdminTokenQuickExtend) => {
+    if (!authToken) {
+      return;
+    }
+
+    setTokenActionToken(user.token);
+    setError('');
+    setSuccessMessage('');
+
+    try {
+      const response = await fetch(getApiUrl('/api/admin/tokens/extend'), {
+        method: 'POST',
+        headers: getAdminHeaders(authToken),
+        body: JSON.stringify({ token: user.token, days }),
+      });
+
+      if (response.status === 401) {
+        handleUnauthorized();
+        return;
+      }
+
+      const data: AdminUserActionResponse = await response.json().catch(() => ({ success: false }));
+      if (!response.ok || !data.success || !data.user) {
+        throw new Error(resolveAdminError(data.error));
+      }
+
+      applyUpdatedUser(data.user);
+      setSuccessMessage(`Токен ${user.token} продлен на ${days} дн.`);
+    } catch (requestError: any) {
+      setError(requestError.message || 'Не удалось продлить токен.');
+    } finally {
+      setTokenActionToken(null);
     }
   };
 
@@ -696,6 +854,206 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
                         {isActionRunning ? 'Баню...' : 'Забанить'}
                       </button>
                     )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </>
+  );
+
+  const renderTokensSection = () => (
+    <>
+      <section className="admin-section">
+        <div className="admin-section-header">
+          <div>
+            <h2 className="admin-section-title">Управление токенами</h2>
+            <p className="admin-section-subtitle">Ищите токены, смотрите их статус, отвязывайте IP и быстро продлевайте доступ прямо из админки.</p>
+          </div>
+        </div>
+
+        <div className="admin-stats-grid">
+          <article className="admin-stat-card">
+            <span className="admin-stat-label">Всего токенов</span>
+            <strong className="admin-stat-value">{tokenStats.totalTokens}</strong>
+          </article>
+          <article className="admin-stat-card">
+            <span className="admin-stat-label">Активные</span>
+            <strong className="admin-stat-value">{tokenStats.activeTokens}</strong>
+          </article>
+          <article className="admin-stat-card">
+            <span className="admin-stat-label">Навсегда</span>
+            <strong className="admin-stat-value">{tokenStats.lifetimeTokens}</strong>
+          </article>
+          <article className="admin-stat-card">
+            <span className="admin-stat-label">Привязанные</span>
+            <strong className="admin-stat-value">{tokenStats.boundTokens}</strong>
+          </article>
+        </div>
+      </section>
+
+      <section className="admin-section">
+        <div className="admin-section-header">
+          <div>
+            <h2 className="admin-section-title">Токены доступа</h2>
+            <p className="admin-section-subtitle">Поиск работает по токену, нику, profile id, chat id и IP. Можно скопировать токен, отвязать его или продлить доступ на фиксированное число дней.</p>
+          </div>
+        </div>
+
+        <div className="admin-users-toolbar">
+          <form className="admin-search-form" onSubmit={handleTokensSearchSubmit}>
+            <input
+              className="admin-search-input"
+              type="text"
+              value={tokenSearch}
+              onChange={(event) => setTokenSearch(event.target.value)}
+              placeholder="Поиск по токену, profile id, chat id, IP или нику"
+              spellCheck={false}
+            />
+            <button type="submit" className="admin-secondary-button" disabled={isLoadingUsers}>
+              {isLoadingUsers ? 'Обновляю...' : 'Найти'}
+            </button>
+          </form>
+
+          <button type="button" className="admin-secondary-button" onClick={handleRefreshTokens} disabled={isLoadingUsers}>
+            {isLoadingUsers ? 'Обновляю...' : 'Обновить список'}
+          </button>
+        </div>
+
+        {visibleTokens.length === 0 ? (
+          <div className="admin-empty-state">
+            {isLoadingUsers ? 'Загружаю токены...' : 'Токены не найдены.'}
+          </div>
+        ) : (
+          <div className="admin-user-list">
+            {visibleTokens.map((user) => {
+              const userState = getUserState(user);
+              const isBusy = tokenActionToken === user.token || userActionToken === user.token;
+
+              return (
+                <article key={`token-${user.token}`} className="admin-user-card admin-token-card">
+                  <div className="admin-user-head">
+                    <div className="admin-user-identity">
+                      <ProfileAvatar
+                        className="admin-user-avatar"
+                        nickname={getDisplayProfileName(user)}
+                        avatarDataUrl={user.profileAvatarDataUrl}
+                        avatarHue={user.profileAvatarHue}
+                        fallback="initials"
+                      />
+                      <div className="admin-user-title-group">
+                        <h3 className="admin-user-name">{getDisplayProfileName(user)}</h3>
+                        <div className="admin-user-subtitle-row">
+                          <span className="admin-user-subtitle">{getDisplayTelegramLabel(user)}</span>
+                          <code className="admin-user-profile-id">{user.profileId || 'LX-UNKNOWN'}</code>
+                        </div>
+                        <div className="admin-token-row">
+                          <code className="admin-user-token">{user.token}</code>
+                          <button
+                            type="button"
+                            className="admin-secondary-button admin-button-small"
+                            onClick={() => handleCopyToken(user.token)}
+                          >
+                            {copiedToken === user.token ? 'Скопировано' : 'Копировать'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="admin-user-badges">
+                      <span className={`admin-user-badge ${userState.className}`}>{userState.label}</span>
+                      {user.isBound && <span className="admin-user-badge admin-user-badge-neutral">IP привязан</span>}
+                      <span className="admin-user-badge admin-user-badge-neutral">{getPlanLabel(user)}</span>
+                      {user.isBanned && <span className="admin-user-badge admin-user-badge-banned">Отозван</span>}
+                    </div>
+                  </div>
+
+                  <div className="admin-user-details">
+                    <div className="admin-user-detail">
+                      <span className="admin-user-detail-label">Профиль</span>
+                      <span className="admin-user-detail-value">{user.profileId || 'LX-UNKNOWN'}</span>
+                    </div>
+                    <div className="admin-user-detail">
+                      <span className="admin-user-detail-label">Chat ID</span>
+                      <span className="admin-user-detail-value">{user.chatId}</span>
+                    </div>
+                    <div className="admin-user-detail">
+                      <span className="admin-user-detail-label">Текущий IP</span>
+                      <span className="admin-user-detail-value admin-user-detail-mono">{user.activatedIp || 'Нет данных'}</span>
+                    </div>
+                    <div className="admin-user-detail">
+                      <span className="admin-user-detail-label">Активирован</span>
+                      <span className="admin-user-detail-value">{formatDateTime(user.activatedAt)}</span>
+                    </div>
+                    <div className="admin-user-detail">
+                      <span className="admin-user-detail-label">Последняя активность</span>
+                      <span className="admin-user-detail-value">{formatDateTime(user.lastSeenAt)}</span>
+                    </div>
+                    <div className="admin-user-detail">
+                      <span className="admin-user-detail-label">Доступ до</span>
+                      <span className="admin-user-detail-value">{formatDateTime(user.subscriptionExpiresAt)}</span>
+                    </div>
+                  </div>
+
+                  <div className="admin-token-actions">
+                    <div className="admin-token-actions-group">
+                      <button
+                        type="button"
+                        className="admin-secondary-button admin-button-small"
+                        onClick={() => handleTokenUnbind(user)}
+                        disabled={isBusy || !user.isBound}
+                      >
+                        {isBusy && tokenActionToken === user.token ? 'Обновляю...' : 'Отвязать IP'}
+                      </button>
+                      <button
+                        type="button"
+                        className="admin-secondary-button admin-button-small"
+                        onClick={() => handleTokenExtend(user, 30)}
+                        disabled={isBusy}
+                      >
+                        +30 дней
+                      </button>
+                      <button
+                        type="button"
+                        className="admin-secondary-button admin-button-small"
+                        onClick={() => handleTokenExtend(user, 90)}
+                        disabled={isBusy}
+                      >
+                        +90 дней
+                      </button>
+                      <button
+                        type="button"
+                        className="admin-secondary-button admin-button-small"
+                        onClick={() => handleTokenExtend(user, 365)}
+                        disabled={isBusy}
+                      >
+                        +365 дней
+                      </button>
+                    </div>
+
+                    <div className="admin-token-actions-group">
+                      {user.isBanned ? (
+                        <button
+                          type="button"
+                          className="admin-secondary-button admin-button-small"
+                          onClick={() => handleUserAction(user, 'unban')}
+                          disabled={isBusy}
+                        >
+                          Восстановить
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="admin-danger-button admin-button-small"
+                          onClick={() => handleUserAction(user, 'ban')}
+                          disabled={isBusy}
+                        >
+                          Отозвать
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </article>
               );
@@ -902,9 +1260,23 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onBackHome, secretMode = f
                   Пользователи
                   <span className="admin-tab-count">{summary.totalUsers}</span>
                 </button>
+                <button
+                  type="button"
+                  className={`admin-tab ${activeSection === 'tokens' ? 'admin-tab-active' : ''}`}
+                  onClick={() => setActiveSection('tokens')}
+                  role="tab"
+                  aria-selected={activeSection === 'tokens'}
+                >
+                  Токены
+                  <span className="admin-tab-count">{tokenStats.totalTokens}</span>
+                </button>
               </div>
 
-              {activeSection === 'users' ? renderUsersSection() : renderPromptSection()}
+              {activeSection === 'users'
+                ? renderUsersSection()
+                : activeSection === 'tokens'
+                  ? renderTokensSection()
+                  : renderPromptSection()}
             </div>
           )}
         </div>
