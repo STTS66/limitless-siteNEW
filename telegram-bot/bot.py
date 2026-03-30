@@ -560,7 +560,7 @@ def get_admin_user(connection: sqlite3.Connection, user_id: int):
     return dict(row) if row else None
 
 
-def list_admin_users(connection: sqlite3.Connection) -> list[dict]:
+def list_persistent_admin_users(connection: sqlite3.Connection) -> list[dict]:
     rows = connection.execute(
         "SELECT * FROM admin_users ORDER BY created_at ASC, user_id ASC"
     ).fetchall()
@@ -1484,7 +1484,7 @@ def build_promo_list_message(promos: list[dict], title: str) -> str:
 
 
 def build_admin_list_message(connection: sqlite3.Connection) -> str:
-    persistent_admins = list_admin_users(connection)
+    persistent_admins = list_persistent_admin_users(connection)
     env_admins = sorted(ADMIN_CHAT_IDS)
 
     lines = ["<b>Администраторы Limitless</b>", ""]
